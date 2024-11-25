@@ -4,7 +4,7 @@ from typing import Any, List
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select , func
-from model import Asignaturas
+from model import Areas, Asignaturas
 from api.deps import SessionDep
 
 router = APIRouter()
@@ -46,11 +46,60 @@ async def create_asignatura(asignatura: Asignaturas, session: SessionDep) -> Any
         ) from e
 
 # Obtener todas las asignaturas
-@router.get("/", response_description="Listar todas las asignaturas", response_model=List[Asignaturas])
+# @router.get("/", response_description="Listar todas las asignaturas", response_model=List[Asignaturas])
+# async def get_asignaturas(session: SessionDep) -> Any:
+#     statement = select(Asignaturas)
+#     result = session.exec(statement).all()
+#     return result
+@router.get("/", response_description="Listar todas las asignaturas con su área", response_model=List[Any])
 async def get_asignaturas(session: SessionDep) -> Any:
-    statement = select(Asignaturas)
-    result = session.exec(statement).all()
-    return result
+    try:
+        # Consulta para obtener asignaturas junto con el id_area y el nombre del área
+        statement = (
+            select(
+                Asignaturas.id,
+                Asignaturas.nombre,
+                Asignaturas.area_id,
+                Areas.nombre.label("area_nombre"),
+                Asignaturas.curso,
+                Asignaturas.fecha_creacion,
+                Asignaturas.descripcion,
+                Asignaturas.codigo,
+                
+            )
+            .join(Areas, Asignaturas.area_id == Areas.id)
+        )
+
+        # Ejecutar la consulta
+        asignaturas = session.exec(statement).all()
+
+
+        # Formatear los resultados a partir de las tuplas
+        result = [
+            {
+                "id": id,
+                "nombre": nombre,
+                "area_id": area_id,
+                "area_nombre": area_nombre,
+                "curso": curso,
+                "fecha_creacion": fecha_creacion,
+                "descripcion": descripcion,
+                "codigo": codigo,
+
+            }
+            for id, nombre, area_id, area_nombre, curso, fecha_creacion, descripcion, codigo in asignaturas
+        ]
+
+        return result
+
+    except Exception as e:
+        # Manejo de errores
+        print(f"Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las asignaturas: {str(e)}"
+        )
+
 
 # Obtener una asignatura específica por ID
 @router.get("/{asignatura_id}", response_description="Obtener una asignatura por ID")
@@ -113,3 +162,35 @@ async def get_total_asignaturas(session: SessionDep) -> Any:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener el total de asignaturas"
         ) from e
+    
+
+@router.get("/asignaturas/search", response_description="Buscar asignaturas por nombre o código", response_model=List[Asignaturas])
+async def search_subject(
+    query: str, 
+    session: SessionDep
+) -> Any:
+    try:
+        # Construir la consulta para buscar por nombre o código
+        statement = select(Asignaturas).where(
+            (Asignaturas.nombre.ilike(f"%{query}%")) | (Asignaturas.codigo.ilike(f"%{query}%"))
+        ).limit(7)  # Limitar resultados para no saturar la respuesta
+        
+        # Ejecutar la consulta
+        result = session.exec(statement).all()
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="No se encontraron asignaturas con los criterios proporcionados."
+            )
+
+        return result
+
+    except SQLAlchemyError as e:
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al realizar la búsqueda en la base de datos."
+        ) from e
+
+

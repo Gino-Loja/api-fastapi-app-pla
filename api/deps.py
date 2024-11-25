@@ -11,6 +11,8 @@ from sqlmodel import Session
 # from app.core import security
 from core.config import settings
 from core.db import engine
+import smtplib 
+from email.message import EmailMessage 
 #from app.models import TokenPayload, User
 
 # reusable_oauth2 = OAuth2PasswordBearer(
@@ -25,6 +27,48 @@ def get_db() -> Generator[Session, None, None]:
 
 SessionDep = Annotated[Session, Depends(get_db)]
 #TokenDep = Annotated[str, Depends(reusable_oauth2)]
+
+def sender_email(to: str, subject: str, text: str) -> True:
+
+    try:
+        sender_email_address = "ginoarkaniano@gmail.com" 
+        email_smtp = "smtp.gmail.com" 
+        email_password = "xsmx ekzb esfm pizr" 
+
+        # Create an email message object 
+        message = EmailMessage() 
+
+        # Configure email headers 
+        message['Subject'] = subject 
+        message['From'] = sender_email_address 
+        message['To'] = to 
+
+        # Set email body text 
+        message.set_content(text) 
+
+        # Set smtp server and port 
+        server = smtplib.SMTP(email_smtp, '587') 
+
+        # Identify this client to the SMTP server 
+        server.ehlo() 
+
+        # Secure the SMTP connection 
+        server.starttls() 
+
+        # Login to email account 
+        server.login(sender_email_address, email_password) 
+
+        # Send email 
+        server.send_message(message) 
+
+        # Close connection to server 
+        server.quit()
+        return True
+    except e:
+        return False
+
+
+   
 
 
 # def get_current_user(session: SessionDep, token: TokenDep) -> User:

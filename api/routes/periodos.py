@@ -95,8 +95,8 @@ async def get_total_periodos(session: SessionDep) -> Any:
 @router.get("/last", response_description="Obtener el último periodo ingresado", response_model=Periodo)
 async def get_ultimo_periodo(session: SessionDep) -> Any:
     try:
-        # Consulta para obtener el último periodo basado en la fecha de creación (ordenado de forma descendente)
-        statement = select(Periodo).order_by(Periodo.fecha_creacion.asc())
+        # Consulta para obtener el último periodo basado en el ID (ordenado de forma descendente)
+        statement = select(Periodo).order_by(Periodo.id.desc())
         ultimo_periodo = session.exec(statement).first()  # Obtiene el primer resultado que es el último periodo ingresado
         
         if not ultimo_periodo:
@@ -108,4 +108,33 @@ async def get_ultimo_periodo(session: SessionDep) -> Any:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener el último periodo desde la base de datos"
+        ) from e
+    
+@router.get("/periodos/search", response_description="Buscar periodos por nombre o código", response_model=List[Periodo])
+async def search_period(
+    query: str, 
+    session: SessionDep
+) -> Any:
+    try:
+        # Construir la consulta para buscar por nombre o código
+        statement = select(Periodo).where(
+            (Periodo.nombre.ilike(f"%{query}%"))
+        ).limit(7).order_by(Periodo.id.desc())  # Limitar resultados
+        
+        # Ejecutar la consulta
+        result = session.exec(statement).all()
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="No se encontraron periodos con los criterios proporcionados."
+            )
+
+        return result
+
+    except SQLAlchemyError as e:
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al realizar la búsqueda en la base de datos."
         ) from e

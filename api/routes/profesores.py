@@ -142,3 +142,67 @@ async def get_total_professors(session: SessionDep) -> Any:
     statement = select(func.count().label("total")).select_from(Profesores)
     result = session.exec(statement).one()
     return  {"total": result}
+
+
+@router.get("/search/name", response_description="Buscar profesor por nombre o cédula", response_model=List[Profesores])
+async def search_professor(
+    query: str, 
+    session: SessionDep
+) -> Any:
+    
+    try:
+        # Construir la consulta para buscar por nombre o cédula
+        statement = select(Profesores).where(
+            (Profesores.nombre.ilike(f"%{query}%")) | (Profesores.cedula.ilike(f"%{query}%"))
+        ).limit(7)
+        
+        # Ejecutar la consulta
+        result = session.exec(statement).all()
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="No se encontraron profesores con los criterios proporcionados."
+            )
+
+        return result
+
+    except SQLAlchemyError as e:
+        print(e)    
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al realizar la búsqueda en la base de datos."
+        ) from e
+    
+
+@router.get("/search/directores-area/name", response_description="Buscar profesor por nombre o cédula", response_model=List[Profesores])
+async def search_professor(
+    query: str, 
+    session: SessionDep
+) -> Any:
+    
+    try:
+        # Construir la consulta para buscar por nombre o cédula
+        statement = select(Profesores).where(
+            (Profesores.nombre.ilike(f"%{query}%")) | (Profesores.cedula.ilike(f"%{query}%"))
+        ).where(Profesores.rol == "Director de area").limit(7)
+        
+        # Ejecutar la consulta
+        result = session.exec(statement).all()
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="No se encontraron profesores con los criterios proporcionados."
+            )
+
+        return result
+
+    except SQLAlchemyError as e:
+        print(e)    
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al realizar la búsqueda en la base de datos."
+        ) from e
+    
+
