@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select, func
 from api.deps import SessionDep
-from model import  Areas, Areas_Profesor, Profesores
+from model import  Areas, areas_profesor, Profesores
 
 router = APIRouter()
 
@@ -135,16 +135,16 @@ async def search_area( session: SessionDep) -> Any:
     try:
         # Realizamos un join entre AreaProfesor, Profesores y Areas
         statement = select(
-            Areas_Profesor.id,
+            areas_profesor.id,
             Profesores.nombre.label("profesor_nombre"),
             Areas.nombre.label("area_nombre"),
-            Areas_Profesor.profesor_id,
-            Areas_Profesor.area_id,
-            Areas_Profesor.fecha_de_ingreso
+            areas_profesor.profesor_id,
+            areas_profesor.area_id,
+            areas_profesor.fecha_de_ingreso
         ).join(
-            Profesores, Areas_Profesor.profesor_id == Profesores.id
+            Profesores, areas_profesor.profesor_id == Profesores.id
         ).join(
-            Areas, Areas_Profesor.area_id == Areas.id
+            Areas, areas_profesor.area_id == Areas.id
         )
     
         result = session.exec(statement).all()
@@ -174,14 +174,14 @@ async def search_area( session: SessionDep) -> Any:
     
 
 @router.post("/areas-profesor", response_description="Guardar área para el profesor", status_code=status.HTTP_201_CREATED)
-async def create_area_profesor(data: Areas_Profesor, session: SessionDep):
+async def create_area_profesor(data: areas_profesor, session: SessionDep):
     try:
         # Verificar si el profesor ya está asignado a esta área
         # Crear un nuevo registro en la tabla areas_profesor
          # Buscar el registro en la tabla areas_profesor
-        area_profesor = session.query(Areas_Profesor).filter(
-            Areas_Profesor.profesor_id == data.profesor_id,
-            Areas_Profesor.area_id == data.area_id
+        area_profesor = session.query(areas_profesor).filter(
+            areas_profesor.profesor_id == data.profesor_id,
+            areas_profesor.area_id == data.area_id
         ).first()
 
         # Si no se encuentra el registro, lanzar una excepción
@@ -192,7 +192,7 @@ async def create_area_profesor(data: Areas_Profesor, session: SessionDep):
             )
 
 
-        new_entry = Areas_Profesor(
+        new_entry = areas_profesor(
             profesor_id=data.profesor_id,
             area_id=data.area_id,
         )
@@ -214,8 +214,8 @@ async def create_area_profesor(data: Areas_Profesor, session: SessionDep):
 async def delete_area_profesor(area_id:int, session: SessionDep):
     try:
         # Buscar el registro en la tabla areas_profesor
-        area_profesor = session.query(Areas_Profesor).filter(
-            Areas_Profesor.id == area_id
+        area_profesor = session.query(areas_profesor).filter(
+            areas_profesor.id == area_id
         ).first()
 
         # Si no se encuentra el registro, lanzar una excepción
@@ -243,11 +243,11 @@ async def delete_area_profesor(area_id:int, session: SessionDep):
     
 
 @router.put("/areas-profesor/update/{area_id}", response_description="Actualizar un área para el profesor")
-async def update_area_profesor(area_id: int, data: Areas_Profesor, session: SessionDep) -> Any:
+async def update_area_profesor(area_id: int, data: areas_profesor, session: SessionDep) -> Any:
     try:
-        area_profesor = session.query(Areas_Profesor).filter(
-            Areas_Profesor.profesor_id == data.profesor_id,
-            Areas_Profesor.area_id == data.area_id
+        area_profesor = session.query(areas_profesor).filter(
+            areas_profesor.profesor_id == data.profesor_id,
+            areas_profesor.area_id == data.area_id
         ).first()
 
         # Si no se encuentra el registro, lanzar una excepción
@@ -257,7 +257,7 @@ async def update_area_profesor(area_id: int, data: Areas_Profesor, session: Sess
                 detail="Ya existe una asignación de área para este profesor."
             )
         # Buscar el registro existente
-        statement = select(Areas_Profesor).where(Areas_Profesor.id == area_id)
+        statement = select(areas_profesor).where(areas_profesor.id == area_id)
         existing_entry = session.exec(statement).one_or_none()
 
 

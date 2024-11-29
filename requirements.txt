@@ -66,14 +66,11 @@ sqlmodel==0.0.22
 starlette==0.37.2
 sympy==1.12
 tbb==2021.11.0
-torchaudio==2.3.1+cu121
-torchvision==0.18.1+cu121
 tqdm==4.66.4
 typer==0.12.3
 typing_extensions==4.9.0
 tzdata==2024.1
 ujson==5.10.0
-ultralytics-thop==0.2.8
 urllib3==2.2.1
 uvicorn==0.32.0
 watchfiles==0.22.0

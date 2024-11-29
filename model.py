@@ -3,6 +3,7 @@ from typing import Optional
 import uuid
 from datetime import datetime
 
+from fastapi import UploadFile
 from sqlmodel import Relationship, SQLModel,Field
 
 
@@ -87,7 +88,7 @@ class Asignaturas(SQLModel, table=True):
     curso: str = Field(..., max_length=50, description="Curso de la asignatura")
 
 
-class Areas_Profesor(SQLModel, table=True):
+class areas_profesor(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     profesor_id: int = Field(..., foreign_key="profesores.id", description="ID del profesor relacionado")
     area_id: int = Field(..., foreign_key="areas.id", description="ID del área relacionada")
@@ -98,8 +99,18 @@ class Planificacion_Profesor(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     planificacion_id: int = Field(..., foreign_key="planificaciones.id", description="ID de la planificación asociada")
     profesor_aprobador_id: Optional[int] = Field(default=None, foreign_key="profesores.id", description="ID del profesor que aprobó")
-    comentario: Optional[str] = Field(default=None, description="Comentario relacionado con la planificación")
     fecha_de_actualizacion: Optional[date] = Field(default=None, description="Fecha de actualización")
     archivo: Optional[str] = Field(default=None, description="Archivo relacionado con la planificación")
     estado: Optional[str] = Field(default=None, description="Estado actual de la planificación")
-    profesor_revisor_id: Optional[int] = Field(default=None, foreign_key="Areas_Profesor.id", description="ID del profesor que revisó")
+    profesor_revisor_id: Optional[int] = Field(default=None, foreign_key="areas_profesor.id", description="ID del profesor que revisó")
+
+class FormularioSubirPdf(SQLModel, table=False):
+    pdf: UploadFile = Field(..., description="Archivo PDF")
+    id_planificacion: int = Field(..., description="ID de la planificación")
+    area_codigo:str = Field(..., description="Código de la área")
+    nombre_usuario:str = Field(..., description="Nombre del usuario")
+    id_usuario:int = Field(..., description="ID del usuario")
+    nommbre_asignatura:str = Field(..., description="Nombre de la asignatura")
+    periodo:str = Field(..., description="Nombre del periodo")
+    fecha_subida:date = Field(..., description="Fecha de subida")
+    

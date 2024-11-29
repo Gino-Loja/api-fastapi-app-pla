@@ -1,5 +1,6 @@
 from collections.abc import Generator
-from typing import Annotated
+import ftplib
+from typing import Annotated, Optional
 
 # import jwt
 from fastapi import Depends, HTTPException, status
@@ -67,6 +68,59 @@ def sender_email(to: str, subject: str, text: str) -> True:
     except e:
         return False
 
+
+def conexion_ftp(
+    host: str = 'ftpserver.fichafamiliarchambo.site', 
+    user: str = 'admin', 
+    passwd: str = 'Y9uHCY8eZ880n', 
+    timeout: int = 30
+
+) -> Optional[ftplib.FTP]:
+    """
+    Establece una conexión segura con un servidor FTP.
+    
+    Args:
+        host (str): Dirección del servidor FTP
+        user (str): Nombre de usuario para la autenticación
+        passwd (str): Contraseña de acceso
+        timeout (int): Tiempo máximo de espera para la conexión
+    
+    Returns:
+        ftplib.FTP: Objeto de conexión FTP o None si falla
+    """
+    try:
+        
+        # Crear instancia de FTP con manejo de timeout
+        ftp = ftplib.FTP(timeout=timeout)
+        
+        # Deshabilitar modo pasivo si es necesario
+        ftp.set_pasv(False)
+        
+        # Conectar al servidor con información detallada de logging
+        ftp.connect(host=host)
+        
+        # Autenticar con credenciales
+        ftp.login(user=user, passwd=passwd)
+        
+        # Confirmar conexión exitosa        
+        return ftp
+
+    except ftplib.all_errors as e:
+        # Manejo comprehensivo de errores de FTP
+        return None
+
+def cerrar_conexion_ftp(ftp: Optional[ftplib.FTP]) -> None:
+    """
+    Cierra de manera segura una conexión FTP.
+    
+    Args:
+        ftp (ftplib.FTP): Objeto de conexión FTP
+    """
+    if ftp is not None:
+        try:
+            ftp.quit()
+        except ftplib.all_errors as e:
+            ftp.close()
 
    
 

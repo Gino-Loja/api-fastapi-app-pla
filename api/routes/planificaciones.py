@@ -1,14 +1,22 @@
 
-from fastapi import APIRouter, Body, Depends, Request, Response, HTTPException, status
+import ftplib
+import io
+import os
+from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, HTTPException, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from typing import Any, List
+from typing import Any, List, Optional
+from fastapi.responses import FileResponse
 from sqlalchemy import alias
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select , func
-from model import Areas, Areas_Profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
-from api.deps import SessionDep, sender_email
+from model import Areas, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
+from api.deps import SessionDep, cerrar_conexion_ftp, conexion_ftp, sender_email
 from sqlalchemy.orm import aliased
+from ftplib import FTP
+import tempfile
+import io
+from typing import Optional
 
 router = APIRouter()
 
@@ -131,6 +139,8 @@ async def get_all_planificaciones(
         query = (
             select(
                 Planificaciones,
+                Planificacion_Profesor.id,
+                Planificacion_Profesor.planificacion_id,
                 Profesores.nombre.label("profesor_nombre"),
                 Asignaturas.nombre.label("asignatura_nombre"),
                 Periodo.nombre.label("periodo_nombre"),
@@ -146,7 +156,6 @@ async def get_all_planificaciones(
                 Planificacion_Profesor.fecha_de_actualizacion,
                 Planificacion_Profesor.estado,
                 Planificacion_Profesor.archivo,
-                Planificacion_Profesor.comentario
             )
             .join(Profesores, Planificaciones.profesor_id == Profesores.id)
             .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
@@ -158,8 +167,8 @@ async def get_all_planificaciones(
             )
             # Join para obtener la información del profesor revisor
             .join(
-                Areas_Profesor,
-                Planificacion_Profesor.profesor_revisor_id == Areas_Profesor.id,
+                areas_profesor,
+                Planificacion_Profesor.profesor_revisor_id == areas_profesor.id,
                 isouter=True
             )
             .where(Planificaciones.periodo_id == query)
@@ -169,8 +178,8 @@ async def get_all_planificaciones(
         planificaciones = session.exec(query).all()
 
         # Obtener los IDs de profesores aprobadores y revisores
-        profesor_aprobador_ids = [p[4] for p in planificaciones if p[4] is not None]  # índice 4 es profesor_aprobador_id
-        profesor_revisor_ids = [p[5] for p in planificaciones if p[5] is not None]    # índice 5 es profesor_revisor_id
+        profesor_aprobador_ids = [p[6] for p in planificaciones if p[6] is not None]  # índice 4 es profesor_aprobador_id
+        profesor_revisor_ids = [p[7] for p in planificaciones if p[7] is not None]    # índice 5 es profesor_revisor_id
 
         # Consultar nombres de profesores aprobadores
         aprobadores = {}
@@ -182,9 +191,9 @@ async def get_all_planificaciones(
         revisores = {}
         if profesor_revisor_ids:
             query_revisores = (
-                select(Areas_Profesor, Profesores.nombre)
-                .join(Profesores, Areas_Profesor.profesor_id == Profesores.id)
-                .where(Areas_Profesor.id.in_(profesor_revisor_ids))
+                select(areas_profesor, Profesores.nombre)
+                .join(Profesores, areas_profesor.profesor_id == Profesores.id)
+                .where(areas_profesor.id.in_(profesor_revisor_ids))
             )
             revisores = {ap.id: nombre for ap, nombre in session.exec(query_revisores)}
 
@@ -192,7 +201,6 @@ async def get_all_planificaciones(
         result = [
             {
                 # Información básica de la planificación
-                "id": planificacion.id,
                 "titulo": planificacion.titulo,
                 "descripcion": planificacion.descripcion,
                 "fecha_subida": planificacion.fecha_subida,
@@ -201,6 +209,9 @@ async def get_all_planificaciones(
                 "profesor_id": planificacion.profesor_id,
                 "asignaturas_id": planificacion.asignaturas_id,
                 "periodo_id": planificacion.periodo_id,
+
+                "id": id,
+                "id_planificacion": planificacion_id,
                 
                 # Nombres de las relaciones principales
                 "profesor_nombre": profesor_nombre,
@@ -224,13 +235,12 @@ async def get_all_planificaciones(
                 "fecha_de_actualizacion": fecha_de_actualizacion,
                 "estado": estado,
                 "archivo": archivo,
-                "comentario": comentario
             }
             for (
-                planificacion, profesor_nombre, asignatura_nombre, periodo_nombre,
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, periodo_nombre,
                 profesor_aprobador_id, profesor_revisor_id,
                 area_id, area_nombre, area_codigo,
-                fecha_de_actualizacion, estado, archivo, comentario
+                fecha_de_actualizacion, estado, archivo
             ) in planificaciones
         ]
         
@@ -242,3 +252,195 @@ async def get_all_planificaciones(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener las planificaciones: {str(e)}"
         )
+    
+
+BASE_UPLOAD_DIR = "uploads"
+
+@router.put("/subir-pdf/")
+async def subir_pdf(
+    db: SessionDep,
+    request: Request,
+    pdf: UploadFile = File(...),
+    id_planificacion: int = Form(...),
+    area_codigo: str = Form(...),
+    id_usuario: int = Form(...),
+    nombre_asignatura: str = Form(...),
+    periodo_nombre: str = Form(...),    
+):
+    # Validar conexión al servidor FTP
+    ftp_server: Optional[ftplib.FTP] = request.app.ftp
+    if not ftp_server:
+        raise HTTPException(status_code=500, detail="No hay conexión con el servidor FTP.")
+
+    try:
+        # Verificar si ya existe un registro de planificación_profesor
+        query_planificacion_profesor = select(Planificacion_Profesor).where(
+            Planificacion_Profesor.id == id_planificacion
+        )
+        result = db.exec(query_planificacion_profesor)
+        planificacion_profesor: Optional[Planificacion_Profesor] = result.first()
+
+        if not planificacion_profesor:
+            raise HTTPException(status_code=404, detail="Planificación no encontrada")
+
+        # Lógica para determinar el estado
+        if planificacion_profesor.profesor_revisor_id == id_usuario:
+            estado = "revisado"
+        elif planificacion_profesor.profesor_aprobador_id == id_usuario:
+            estado = "aprobado"
+        else:
+            estado = "entregado"
+
+        # Crear la ruta del archivo
+        ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{nombre_asignatura}"
+        nombre_archivo = f"{id_planificacion}_{nombre_asignatura}_{estado}.pdf"
+        ruta_completa = f"{ruta_carpeta}/{nombre_archivo}"
+
+        # Verificar y crear directorios en el servidor FTP
+        partes = ruta_carpeta.split("/")
+        for i in range(1, len(partes) + 1):
+            subpath = "/".join(partes[:i])
+            try:
+                ftp_server.mkd(subpath)
+            except ftplib.error_perm:
+                # Ignorar error si el directorio ya existe
+                pass
+
+        # Cambiar al directorio correspondiente
+        ftp_server.cwd(ruta_carpeta)
+
+        # Verificar si el archivo ya existe
+        archivos_en_directorio = ftp_server.nlst()
+        if nombre_archivo in archivos_en_directorio:
+            # Eliminar el archivo existente
+            ftp_server.delete(nombre_archivo)
+
+        # Subir el nuevo archivo
+        contenido = await pdf.read()
+        ftp_server.storbinary(f"STOR {nombre_archivo}", io.BytesIO(contenido))
+
+        # Actualizar el registro en la base de datos
+        planificacion_profesor.archivo = ruta_completa
+        planificacion_profesor.estado = estado
+
+        # Guardar cambios en la base de datos
+        db.add(planificacion_profesor)
+        db.commit()
+        db.refresh(planificacion_profesor)
+
+        return {
+            "mensaje": "Archivo actualizado exitosamente.",
+            "ruta_archivo": ruta_completa,
+            "estado": estado
+        }
+    except Exception as e:
+        print(e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al subir el archivo: {str(e)}")
+
+
+
+
+@router.get("/descargar-planificacion/", response_description="Descargar archivo de planificación")
+async def descargar_planificacion(
+    ruta_archivo: str,
+    session: SessionDep,
+    response: Response,
+    request: Request,
+) -> Response:
+    """
+    Endpoint to download a planning file from FTP server
+    
+    Args:
+        ruta_archivo (str): Path to the file to be downloaded
+        session (SessionDep): Database session
+        response (Response): FastAPI response object
+        request (Request): FastAPI request object
+    
+    Returns:
+        FileResponse: The requested file
+    """
+    # Validate input to prevent null character injection
+    if not ruta_archivo or '\0' in ruta_archivo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ruta de archivo inválida"
+        )
+
+    ftp_server: Optional[ftplib.FTP] = conexion_ftp()
+    if not ftp_server:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="No hay conexión con el servidor FTP."
+        )
+    
+    try:
+        # Store the initial directory
+
+        # Validate planificacion exists in database
+        query = select(Planificacion_Profesor).where(Planificacion_Profesor.archivo == ruta_archivo)
+        planificacion = session.exec(query).one_or_none()
+
+        if not planificacion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Planificación no encontrada para la ruta especificada."
+            )
+        
+        # Safely split path
+        directorio, filename = os.path.split(ruta_archivo)
+        
+        try:
+            # Change to correct directory in FTP
+            ftp_server.cwd(directorio)  
+        except Exception as e:
+            print(f"Error cambiando directorio FTP: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"El directorio {directorio} no existe en el servidor FTP."
+            )
+
+        # Create a temporary file for download
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            try:
+                # Download file directly to temporary file
+                ftp_server.retrbinary(f"RETR {filename}", temp_file.write)
+            except Exception as e:
+                print(f"Error descargando archivo: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error al descargar el archivo desde el servidor FTP."
+                )
+            finally:
+                # Always return to the initial directory
+                try:
+                    cerrar_conexion_ftp(ftp_server)
+                except Exception as e:
+                    print(f"Error regresando al directorio inicial: {e}")
+
+        # Return file as a downloadable response
+        return FileResponse(
+            path=temp_file.name, 
+            media_type='application/pdf', 
+            filename=filename,
+            # Optional: add headers for download
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except HTTPException as http_exc:
+        # Re-raise HTTP exceptions
+        raise http_exc
+    
+    except Exception as e:
+        print(e)
+        # Print unexpected errors
+        print(f"Error inesperado: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ocurrió un error interno al procesar la solicitud."
+        )
+    
+        # Ensure FTP connection is closed
+        
