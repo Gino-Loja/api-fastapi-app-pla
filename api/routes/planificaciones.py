@@ -1,4 +1,5 @@
 
+from datetime import datetime
 import ftplib
 import io
 import os
@@ -6,11 +7,11 @@ from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, HTT
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List, Optional
 from fastapi.responses import FileResponse
-from sqlalchemy import alias
+from sqlalchemy import String, alias, cast, extract
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select , func
-from model import Areas, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
+from model import Areas, Comentarios, Comentarios_Dto, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
 from api.deps import SessionDep, cerrar_conexion_ftp, conexion_ftp, sender_email
 from sqlalchemy.orm import aliased
 from ftplib import FTP
@@ -132,6 +133,8 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
 @router.get("/search/", response_description="Listar todas las planificaciones", response_model=List[Any])
 async def get_all_planificaciones(
     query: int, 
+    mes: str,
+    year: str,
     session: SessionDep
 ) -> Any:
     try:
@@ -172,6 +175,10 @@ async def get_all_planificaciones(
                 isouter=True
             )
             .where(Planificaciones.periodo_id == query)
+            
+            .where(cast(extract('month', Planificaciones.fecha_subida), String).ilike(f'%{mes}%'))
+            .where(cast(extract('year', Planificaciones.fecha_subida), String).ilike(f'%{year}%'))
+
         )
         
         # Ejecutar la consulta y obtener los resultados
@@ -278,13 +285,25 @@ async def subir_pdf(
             Planificacion_Profesor.id == id_planificacion
         )
         result = db.exec(query_planificacion_profesor)
+        
         planificacion_profesor: Optional[Planificacion_Profesor] = result.first()
+        
+        profesor_revisor = db.exec(select(areas_profesor).where(
+            areas_profesor.id == planificacion_profesor.profesor_revisor_id
+        ))
+        
+        planificacion_profesor_id: Optional[areas_profesor] = profesor_revisor.first()
+
+        
+        
 
         if not planificacion_profesor:
             raise HTTPException(status_code=404, detail="Planificación no encontrada")
 
         # Lógica para determinar el estado
-        if planificacion_profesor.profesor_revisor_id == id_usuario:
+        print(planificacion_profesor.profesor_aprobador_id, id_usuario)
+        
+        if planificacion_profesor_id == id_usuario:
             estado = "revisado"
         elif planificacion_profesor.profesor_aprobador_id == id_usuario:
             estado = "aprobado"
@@ -327,6 +346,10 @@ async def subir_pdf(
         db.add(planificacion_profesor)
         db.commit()
         db.refresh(planificacion_profesor)
+        try:
+            ftp_server.cwd('/')
+        except Exception as e:
+            print(f"Error regresando al directorio inicial: {e}")
 
         return {
             "mensaje": "Archivo actualizado exitosamente.",
@@ -367,7 +390,7 @@ async def descargar_planificacion(
             detail="Ruta de archivo inválida"
         )
 
-    ftp_server: Optional[ftplib.FTP] = conexion_ftp()
+    ftp_server: Optional[ftplib.FTP] = request.app.ftp
     if not ftp_server:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
@@ -392,6 +415,7 @@ async def descargar_planificacion(
         
         try:
             # Change to correct directory in FTP
+          
             ftp_server.cwd(directorio)  
         except Exception as e:
             print(f"Error cambiando directorio FTP: {e}")
@@ -414,7 +438,7 @@ async def descargar_planificacion(
             finally:
                 # Always return to the initial directory
                 try:
-                    cerrar_conexion_ftp(ftp_server)
+                    ftp_server.cwd('/')
                 except Exception as e:
                     print(f"Error regresando al directorio inicial: {e}")
 
@@ -443,4 +467,231 @@ async def descargar_planificacion(
         )
     
         # Ensure FTP connection is closed
+
+
+
+@router.get("/search/me/", response_description="Listar todas las planificaciones de un profesor", response_model=List[Any])
+async def get_all_planificaciones(
+    profesor_id: int,
+    query: int, 
+    mes: str,
+    year: str,
+    session: SessionDep
+) -> Any:
+    try:
+        # Realizamos el join entre todas las tablas necesarias
+        query_planificaciones = (
+            select(
+                Planificaciones,
+                Planificacion_Profesor.id,
+                Planificacion_Profesor.planificacion_id,
+                Profesores.nombre.label("profesor_nombre"),
+                Asignaturas.nombre.label("asignatura_nombre"),
+                Periodo.nombre.label("periodo_nombre"),
+                Planificacion_Profesor.profesor_aprobador_id,
+                Planificacion_Profesor.profesor_revisor_id,
+                Areas.id.label("area_id"),
+                Areas.nombre.label("area_nombre"),
+                Areas.codigo.label("area_codigo"),
+                Planificacion_Profesor.fecha_de_actualizacion,
+                Planificacion_Profesor.estado,
+                Planificacion_Profesor.archivo,
+            )
+            .join(Profesores, Planificaciones.profesor_id == Profesores.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .join(Periodo, Planificaciones.periodo_id == Periodo.id)
+            .join(Areas, Asignaturas.area_id == Areas.id)
+            .join(
+                Planificacion_Profesor,
+                Planificaciones.id == Planificacion_Profesor.planificacion_id
+            )
+            .join(
+                areas_profesor,
+                Planificacion_Profesor.profesor_revisor_id == areas_profesor.id,
+                isouter=True
+            )
+            .where(Planificaciones.profesor_id == profesor_id)  # Filtrar por el ID del profesor asignado
+            .where(Planificaciones.periodo_id == query)
+            .where(cast(extract('month', Planificaciones.fecha_subida), String).ilike(f'%{mes}%'))
+            .where(cast(extract('year', Planificaciones.fecha_subida), String).ilike(f'%{year}%'))
+     
+        )
         
+        # Ejecutar la consulta y obtener los resultados
+        planificaciones = session.exec(query_planificaciones).all()
+
+        # Obtener los IDs de profesores aprobadores y revisores
+        profesor_aprobador_ids = [p[6] for p in planificaciones if p[6] is not None]
+        profesor_revisor_ids = [p[7] for p in planificaciones if p[7] is not None]
+
+        # Consultar nombres de profesores aprobadores
+        aprobadores = {}
+        if profesor_aprobador_ids:
+            query_aprobadores = select(Profesores).where(Profesores.id.in_(profesor_aprobador_ids))
+            aprobadores = {p.id: p.nombre for p in session.exec(query_aprobadores)}
+
+        # Consultar nombres de profesores revisores a través de Areas_Profesor
+        revisores = {}
+        if profesor_revisor_ids:
+            query_revisores = (
+                select(areas_profesor, Profesores.nombre)
+                .join(Profesores, areas_profesor.profesor_id == Profesores.id)
+                .where(areas_profesor.id.in_(profesor_revisor_ids))
+            )
+            revisores = {ap.id: nombre for ap, nombre in session.exec(query_revisores)}
+
+        # Crear una lista de resultados con los campos deseados
+        result = [
+            {
+                "titulo": planificacion.titulo,
+                "descripcion": planificacion.descripcion,
+                "fecha_subida": planificacion.fecha_subida,
+                "profesor_id": planificacion.profesor_id,
+                "asignaturas_id": planificacion.asignaturas_id,
+                "periodo_id": planificacion.periodo_id,
+                "id": id,
+                "id_planificacion": planificacion_id,
+                "profesor_nombre": profesor_nombre,
+                "periodo_nombre": periodo_nombre,
+                "asignatura_nombre": asignatura_nombre,
+                "area_id": area_id,
+                "area_nombre": area_nombre,
+                "area_codigo": area_codigo,
+                "profesor_aprobador_id": profesor_aprobador_id,
+                "profesor_aprobador_nombre": aprobadores.get(profesor_aprobador_id) if profesor_aprobador_id else None,
+                "profesor_revisor_id": profesor_revisor_id,
+                "profesor_revisor_nombre": revisores.get(profesor_revisor_id) if profesor_revisor_id else None,
+                "fecha_de_actualizacion": fecha_de_actualizacion,
+                "estado": estado,
+                "archivo": archivo,
+            }
+            for (
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, periodo_nombre,
+                profesor_aprobador_id, profesor_revisor_id,
+                area_id, area_nombre, area_codigo,
+                fecha_de_actualizacion, estado, archivo
+            ) in planificaciones
+        ]
+        
+        return result
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones: {str(e)}"
+        )
+
+
+@router.post("/comentar-planificacion/", response_description="Comentar una planificación", status_code=status.HTTP_201_CREATED)
+async def comentar_planificacion(
+    comentario: Comentarios_Dto,
+    session: SessionDep 
+):
+    try:
+        query_planificacion_profesor = select(Planificacion_Profesor).where(
+            Planificacion_Profesor.id == comentario.planificacion_profesor_id
+        )
+        result = session.exec(query_planificacion_profesor)
+        planificacion_profesor = result.first()
+        
+        if not planificacion_profesor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Planificación no encontrada"
+            )
+        
+        profesor = select(Profesores).where(Profesores.id == comentario.profesor_id)
+        fechtprofesor = session.exec(profesor).one_or_none()
+        
+        comentario_data = Comentarios(
+            id_profesor=comentario.profesor_id,
+            planificacion_profesor_id=comentario.planificacion_profesor_id,
+            comentario=comentario.comentario,  # Fixed: Use the comentario string from DTO
+            fecha_enviado=datetime.now()
+        )
+        
+        session.add(comentario_data)
+        session.commit()
+        session.refresh(comentario_data)
+        
+        sender_email(fechtprofesor.email,
+                    f"Comentario de Planificación: {comentario.nombre_planificacion}_{comentario.periodo_nombre}",
+                    comentario.comentario)  # Fixed: Use comentario string
+        
+        return comentario_data
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al guardar el comentario en la base de datos"
+        ) from e
+
+
+
+@router.get("/comentarios/", response_description="Listar todos los comentarios de planificaciones", response_model=List[Any])
+async def get_all_comentarios_planificacion(
+    planificacion_profesor_id: int,
+    session: SessionDep
+):
+    
+    print(planificacion_profesor_id)
+    try:
+        # Realizamos el join entre todas las tablas necesarias
+        query = (
+            select(Comentarios)
+            .where(Comentarios.planificacion_profesor_id == planificacion_profesor_id)
+            
+            )
+        
+        # Ejecutar la consulta y obtener los resultados
+        comentarios = session.exec(query).all()
+        
+
+        # Obtener los IDs de profesores 
+        profesor_ids = [p.id_profesor for p in comentarios if p.id_profesor is not None]
+        
+        # Consultar nombres de profesores
+        nombres_profesores = select(Profesores).where(Profesores.id.in_(profesor_ids))
+        nombres_profesores = session.exec(nombres_profesores).all()
+        
+        nombres_profesores = {p.id: p.nombre for p in nombres_profesores}
+        
+        # Crear una lista de resultados con los campos deseados
+        result = [
+            {
+                "id": comentario.id,
+                "id_profesor": comentario.id_profesor,
+                "planificacion_profesor_id": comentario.planificacion_profesor_id,
+                "comentario": comentario.comentario,
+                "fecha_enviado": comentario.fecha_enviado,
+                "nombre_profesor": nombres_profesores.get(comentario.id_profesor),
+            }
+            for comentario in comentarios
+        ]
+        
+        return result
+        
+        
+        # Consultar nombres de profesores aprobadores
+        # Crear una lista de resultados con los campos deseados con los nombres de los profesores
+        
+        
+        # result = [
+        #     {
+        #         "id": comentario.id,
+        #         "id_profesor": comentario.id_profesor,
+        #         "planificacion_profesor_id": comentario.planificacion_profesor_id,
+        #         "comentario": comentario.comentario,
+        #         "fecha_enviado": comentario.fecha_enviado,
+        #     }
+        #     for comentario in comentarios
+        # ]
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones: {str(e)}"
+        )   
+                

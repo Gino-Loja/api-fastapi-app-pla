@@ -73,7 +73,6 @@ def conexion_ftp(
     host: str = 'ftpserver.fichafamiliarchambo.site', 
     user: str = 'admin', 
     passwd: str = 'Y9uHCY8eZ880n', 
-    timeout: int = 30
 
 ) -> Optional[ftplib.FTP]:
     """
@@ -91,10 +90,10 @@ def conexion_ftp(
     try:
         
         # Crear instancia de FTP con manejo de timeout
-        ftp = ftplib.FTP(timeout=timeout)
+        ftp = ftplib.FTP()
         
         # Deshabilitar modo pasivo si es necesario
-        ftp.set_pasv(False)
+        ftp.set_pasv(True)
         
         # Conectar al servidor con información detallada de logging
         ftp.connect(host=host)
@@ -122,7 +121,13 @@ def cerrar_conexion_ftp(ftp: Optional[ftplib.FTP]) -> None:
         except ftplib.all_errors as e:
             ftp.close()
 
-   
+def reconectar_ftp(ftp: Optional[ftplib.FTP]) -> ftplib.FTP:
+    """
+    Reconectar automáticamente si la conexión FTP está cerrada.
+    """
+    if not ftp or ftp.sock is None:  # Verifica si la conexión está cerrada
+        ftp = conexion_ftp()  # Reestablece la conexión
+    return ftp
 
 
 # def get_current_user(session: SessionDep, token: TokenDep) -> User:

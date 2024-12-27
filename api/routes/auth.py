@@ -33,6 +33,7 @@ class User(BaseModel):
     nombre: str
     email: str | None = None
     rol: str | None = None
+    id: int | None = None
 
 
 class UserInDB(User):
@@ -74,6 +75,7 @@ def get_user(session: SessionDep, email: str): #aqui
         nombre=result.nombre,
         email=result.email,
         rol=result.rol,
+        id=result.id,
         hashed_password=result.password
     )
 
@@ -153,5 +155,4 @@ async def login_for_access_token(
 async def read_users_me(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
-    
     return current_user

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Body, Request, Response, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List
+from sqlalchemy import asc
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from sqlmodel import select , func
+from sqlmodel import desc, select , func
 from model import Periodo
 from api.deps import SessionDep
 
@@ -31,7 +32,8 @@ async def create_periodo(periodo: Periodo, session: SessionDep) -> Any:
 # Obtener todos los periodos
 @router.get("/periodo/", response_description="Listar todos los periodos", response_model=List[Periodo])
 async def get_periodos(session: SessionDep) -> Any:
-    statement = select(Periodo)
+    # Consulta ordenada por id descendente
+    statement = select(Periodo).order_by(Periodo.id.desc())
     result = session.exec(statement).all()
     return result
 

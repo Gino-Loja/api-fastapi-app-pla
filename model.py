@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import UploadFile
+from pydantic import BaseModel
 from sqlmodel import Relationship, SQLModel,Field
 
 
@@ -96,6 +97,7 @@ class areas_profesor(SQLModel, table=True):
 
 
 class Planificacion_Profesor(SQLModel, table=True):
+    __tablename__ = "planificacion_profesor"
     id: Optional[int] = Field(default=None, primary_key=True)
     planificacion_id: int = Field(..., foreign_key="planificaciones.id", description="ID de la planificación asociada")
     profesor_aprobador_id: Optional[int] = Field(default=None, foreign_key="profesores.id", description="ID del profesor que aprobó")
@@ -114,3 +116,18 @@ class FormularioSubirPdf(SQLModel, table=False):
     periodo:str = Field(..., description="Nombre del periodo")
     fecha_subida:date = Field(..., description="Fecha de subida")
     
+class Comentarios(SQLModel, table=True):
+    __tablename__ = "comentarios"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_profesor: int = Field(..., foreign_key="profesores.id")
+    planificacion_profesor_id: int = Field(..., foreign_key="planificacion_profesor.id")
+    comentario: str = Field(..., max_length=1000)
+    fecha_enviado: datetime = Field(default_factory=date.today)
+
+class Comentarios_Dto(SQLModel):
+    profesor_id: int
+    planificacion_profesor_id: int
+    comentario: str
+    nombre_planificacion: str
+    periodo_nombre: str
+     
