@@ -79,7 +79,7 @@ async def update_area(area_id: int, area: Areas, session: SessionDep) -> Any:
     return existing_area
 
 # Eliminar un área
-@router.delete("/{area_id}", response_description="Eliminar un área")
+@router.delete("/delete/{area_id}", response_description="Eliminar un área")
 async def delete_area(area_id: int, session: SessionDep) -> Any:
     statement = select(Areas).where(Areas.id == area_id)
     area = session.exec(statement).one_or_none()
@@ -249,9 +249,11 @@ async def update_area_profesor(area_id: int, data: areas_profesor, session: Sess
             areas_profesor.profesor_id == data.profesor_id,
             areas_profesor.area_id == data.area_id
         ).first()
+        
+        print(area_profesor)
 
         # Si no se encuentra el registro, lanzar una excepción
-        if  area_profesor:
+        if  area_profesor is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Ya existe una asignación de área para este profesor."

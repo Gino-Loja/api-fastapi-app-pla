@@ -1,10 +1,11 @@
 from datetime import date
 from typing import Optional
+from unittest.mock import Base
 import uuid
 from datetime import datetime
 
 from fastapi import UploadFile
-from pydantic import BaseModel
+from pydantic import EmailStr
 from sqlmodel import Relationship, SQLModel,Field
 
 
@@ -34,6 +35,8 @@ class Profesores(SQLModel, table=True):
     telefono: Optional[str] = Field(default=None, title="Teléfono")
     direccion: Optional[str] = Field(default=None, title="Dirección")
     rol: Optional[str] = Field(default=None, title="Rol")
+    estado: Optional[bool] = Field(default=None, title="Estado")
+    is_verified: Optional[bool] = Field(default=None, title="Verificado")
 
 class Roles(SQLModel):
     #__tablename__ = "profesores"
@@ -65,7 +68,7 @@ class Planificaciones(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # Clave primaria
     titulo: str = Field(index=True)  # Campo de texto con índice
     descripcion: Optional[str] = None  # Campo opcional
-    fecha_subida: date  # Marca de tiempo
+    fecha_subida: datetime  # Marca de tiempo
     profesor_id: Optional[int] = Field(foreign_key="profesores.id")  # Clave foránea hacia "profesores"
     asignaturas_id: Optional[int] = Field(foreign_key="asignaturas.id")  # Clave foránea hacia "asignaturas"
     periodo_id: Optional[int] = Field(foreign_key="periodo.id") 
@@ -130,4 +133,25 @@ class Comentarios_Dto(SQLModel):
     comentario: str
     nombre_planificacion: str
     periodo_nombre: str
+
+class AccessToken(SQLModel, table=True):
+    __tablename__ = 'accesstoken'  # Nombre de la tabla
+
+    profesor_id: int = Field(..., foreign_key="profesores.id")  # Referencia a la tabla 'profesores'
+    token: str = Field(..., max_length=43, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)  # Fecha de creación
+    
+    
      
+# class UserBase(SQLModel):
+#     is_active: bool = True
+#     is_superuser: bool = False
+#     is_verified: bool = False
+#     profesor_id: int = Field(default=None, foreign_key="Profesores.id")
+    
+# class UserRegister(SQLModel):
+#     password: str = Field(min_length=8, max_length=40)
+#     full_name: str | None = Field(default=None, max_length=255)
+    
+# class UserCreate(UserBase):
+#     password: str = Field(min_length=8, max_length=40)

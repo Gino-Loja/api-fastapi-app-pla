@@ -115,6 +115,7 @@ async def get_asignatura(asignatura_id: int, session: SessionDep) -> Any:
 # Actualizar una asignatura
 @router.put("/{asignatura_id}", response_description="Actualizar una asignatura")
 async def update_asignatura(asignatura_id: int, asignatura: Asignaturas, session: SessionDep) -> Any:
+    
     statement = select(Asignaturas).where(Asignaturas.id == asignatura_id)
     existing_asignatura = session.exec(statement).one_or_none()
     
@@ -123,7 +124,8 @@ async def update_asignatura(asignatura_id: int, asignatura: Asignaturas, session
 
     updated_asignatura_data = jsonable_encoder(asignatura)
     for key, value in updated_asignatura_data.items():
-        setattr(existing_asignatura, key, value)
+            if value is not None:  # No actualizamos si el valor es None
+                setattr(existing_asignatura, key, value)
     
     session.add(existing_asignatura)
     session.commit()

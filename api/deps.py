@@ -32,9 +32,9 @@ SessionDep = Annotated[Session, Depends(get_db)]
 def sender_email(to: str, subject: str, text: str) -> True:
 
     try:
-        sender_email_address = "ginoarkaniano@gmail.com" 
-        email_smtp = "smtp.gmail.com" 
-        email_password = "xsmx ekzb esfm pizr" 
+        sender_email_address = settings.EMAILS_FROM_EMAIL
+        email_smtp = settings.SMTP_HOST
+        email_password = settings.SMTP_PASSWORD
 
         # Create an email message object 
         message = EmailMessage() 
@@ -65,14 +65,15 @@ def sender_email(to: str, subject: str, text: str) -> True:
         # Close connection to server 
         server.quit()
         return True
-    except e:
+    except Exception as e:
+        print(f"Error al enviar el correo: {e}")
         return False
-
+    
 
 def conexion_ftp(
-    host: str = 'ftpserver.fichafamiliarchambo.site', 
-    user: str = 'admin', 
-    passwd: str = 'Y9uHCY8eZ880n', 
+    host: str = settings.FTP_SERVER, 
+    user: str = settings.FTP_USER, 
+    passwd: str = settings.FTP_PASSWORD,
 
 ) -> Optional[ftplib.FTP]:
     """

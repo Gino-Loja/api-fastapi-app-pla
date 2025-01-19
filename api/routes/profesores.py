@@ -7,7 +7,9 @@ import os
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select , func
+from core.config import settings
 
+from core.security import get_password_hash
 from model import Profesores, Roles, Total_profesores
 router = APIRouter()
 from PIL import Image
@@ -36,13 +38,18 @@ from api.deps import  SessionDep
 #     return {"file_size": file}
 
 # Crear un nuevo profesor
-@router.post("/create", response_description="Agregar nuevo profesor", status_code=status.HTTP_201_CREATED)
+@router.post("/create",
+             response_description="Agregar nuevo profesor", status_code=status.HTTP_201_CREATED)
 async def create_professor(profesor: Profesores, session: SessionDep) -> Any:
     try:
         profesor_data = jsonable_encoder(profesor)
+        password_hash = get_password_hash(profesor_data["password"])
+        profesor_data["password"] = password_hash
         new_profesor = Profesores(**profesor_data)
+    
         
         session.add(new_profesor)
+        
         session.commit()
         session.refresh(new_profesor)
         
@@ -84,8 +91,10 @@ async def get_professor(profesor_id: int, session: SessionDep) -> Any:
     statement = select(Profesores).where(Profesores.id == profesor_id)
     profesor = session.exec(statement).one_or_none()
     
+   
     if not profesor:
         raise HTTPException(status_code=404, detail="Profesor no encontrado")
+
     
     return profesor
 

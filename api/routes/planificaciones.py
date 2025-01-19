@@ -9,17 +9,44 @@ from typing import Any, List, Optional
 from fastapi.responses import FileResponse
 from sqlalchemy import String, alias, cast, extract
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-
+from zoneinfo import ZoneInfo
 from sqlmodel import select , func
 from model import Areas, Comentarios, Comentarios_Dto, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
-from api.deps import SessionDep, cerrar_conexion_ftp, conexion_ftp, sender_email
+from api.deps import SessionDep, sender_email
 from sqlalchemy.orm import aliased
 from ftplib import FTP
 import tempfile
 import io
 from typing import Optional
+from pytz import timezone as tz
+from utils import render_email_template_info, send_email
 
 router = APIRouter()
+
+DIAS = {
+    'Monday': 'Lunes',
+    'Tuesday': 'Martes',
+    'Wednesday': 'Miércoles',
+    'Thursday': 'Jueves',
+    'Friday': 'Viernes',
+    'Saturday': 'Sábado',
+    'Sunday': 'Domingo'
+}
+
+MESES = {
+    'January': 'Enero',
+    'February': 'Febrero',
+    'March': 'Marzo',
+    'April': 'Abril',
+    'May': 'Mayo',
+    'June': 'Junio',
+    'July': 'Julio',
+    'August': 'Agosto',
+    'September': 'Septiembre',
+    'October': 'Octubre',
+    'November': 'Noviembre',
+    'December': 'Diciembre'
+}
 
 # Crear un nuevo periodo
 
@@ -49,9 +76,23 @@ async def create_planificacion(planificacion: Planificaciones, session: SessionD
         
        
         # Verificar si el usuario tiene un email asociado
-        sender_email(fechtprofesor.email,
-                    "Planificación de asignaturas",
-                    f"Se ha creado una nueva planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega {planificacion.fecha_subida}")
+        # sender_email(fechtprofesor.email,
+        #             "Planificación de asignaturas",
+        #             f"Se ha creado una nueva planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega {planificacion.fecha_subida}")
+        
+        fecha_formateada = formatear_fecha(planificacion.fecha_subida)
+
+        email_data = render_email_template_info(
+        template_name="info_docente.html",
+        email_to=fechtprofesor.email,
+        message=f"Se ha creado una nueva planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega {fecha_formateada}",
+        subject="Planificación de asignaturas"
+        )
+        send_email(
+            email_to=fechtprofesor.email,
+            subject=email_data.subject,
+            html_content=email_data.html_content,
+        )
         # Crear una nueva instancia del modelo Planificacion
         
         planificaciones_data = jsonable_encoder(planificacion)
@@ -77,7 +118,7 @@ async def create_planificacion(planificacion: Planificaciones, session: SessionD
 
 
 @router.put("/update/{planificacion_id}", response_description="Actualizar una planificación", status_code=status.HTTP_200_OK)
-async def update_planificacion(planificacion_id: int, updated_data: Planificaciones, session: SessionDep) -> Any:
+async def update_planificacion(planificacion_id: int, updated_data: Planificaciones, session: SessionDep, request: Request) -> Any:
     try:
         # Verificar si la planificación existe
         existing_planificacion = session.exec(
@@ -89,15 +130,12 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No se encontró la planificación con ID {planificacion_id}"
             )
-        
+
         profesor = select(Profesores).where(Profesores.id == updated_data.profesor_id)
-
         fechtprofesor = session.exec(profesor).one_or_none()
-
 
         asignatura = select(Asignaturas).where(Asignaturas.id == updated_data.asignaturas_id)
         fechtAsignatura = session.exec(asignatura).one_or_none()
-        
         
         if not fechtprofesor:
             raise HTTPException(
@@ -105,15 +143,46 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
                 detail=f"Usuario con id {updated_data.profesor_id} no encontrado"
             )
 
+        # Eliminar archivo de la base de datos y del servidor FTP
+        planificacion_profesor = session.exec(
+            select(Planificacion_Profesor).where(Planificacion_Profesor.planificacion_id == planificacion_id)
+        ).one_or_none()
+    
+        if planificacion_profesor :
+            # Eliminar archivo de FTP
+            ftp_server: Optional[ftplib.FTP] = request.app.ftp
+            if ftp_server:
+                try:
+                    ftp_server.delete(planificacion_profesor.archivo)
+                except Exception as e:
+                    print(f"Error al eliminar archivo del FTP: {e}")
+            # Eliminar archivo de la base de datos
+            planificacion_profesor.archivo = None
+            session.add(planificacion_profesor)
+            session.commit()
+
         # Actualizar los campos de la planificación existente
         updated_fields = updated_data.dict(exclude_unset=True)  # Solo incluir campos enviados
         for key, value in updated_fields.items():
             setattr(existing_planificacion, key, value)
 
-        sender_email(fechtprofesor.email,
-                    "Actualizacion de planificación de asignaturas",
-                    f"Se ha Actualizado la planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega de {updated_data.fecha_subida}")
+        # Actualizar la fecha formateada (si es necesario)
+        fecha_formateada = formatear_fecha(updated_data.fecha_subida)
 
+        # Enviar email (si es necesario)
+        email_data = render_email_template_info(
+            template_name="info_docente.html",
+            email_to=fechtprofesor.email,
+            message=f"Se ha Actualizado la planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega de {fecha_formateada}",
+            subject="Actualización de planificación de asignaturas"
+        )
+        send_email(
+            email_to=fechtprofesor.email,
+            subject=email_data.subject,
+            html_content=email_data.html_content,
+        )
+
+        # Guardar los cambios en la base de datos
         session.add(existing_planificacion)
         session.commit()
         session.refresh(existing_planificacion)
@@ -125,11 +194,10 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
         print(e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al guardar la planificación en la base de datos, talvez la asignatura no esta asignada a ningún area"
+            detail="Error al guardar la planificación en la base de datos, tal vez la asignatura no está asignada a ningún área"
         ) from e
-
-
-
+        
+        
 @router.get("/search/", response_description="Listar todas las planificaciones", response_model=List[Any])
 async def get_all_planificaciones(
     query: int, 
@@ -301,14 +369,17 @@ async def subir_pdf(
             raise HTTPException(status_code=404, detail="Planificación no encontrada")
 
         # Lógica para determinar el estado
-        print(planificacion_profesor.profesor_aprobador_id, id_usuario)
         
         if planificacion_profesor_id == id_usuario:
             estado = "revisado"
         elif planificacion_profesor.profesor_aprobador_id == id_usuario:
             estado = "aprobado"
-        else:
+            
+        if not planificacion_profesor.archivo:
+            print("archivo no existe pero fue entregado")
+            
             estado = "entregado"
+        
 
         # Crear la ruta del archivo
         ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{nombre_asignatura}"
@@ -589,44 +660,66 @@ async def comentar_planificacion(
     session: SessionDep 
 ):
     try:
+        # Consulta la planificación del profesor
         query_planificacion_profesor = select(Planificacion_Profesor).where(
             Planificacion_Profesor.id == comentario.planificacion_profesor_id
         )
         result = session.exec(query_planificacion_profesor)
-        planificacion_profesor = result.first()
-        
+        planificacion_profesor = result.first()  # Devuelve el primer resultado
+
         if not planificacion_profesor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Planificación no encontrada"
             )
-        
-        profesor = select(Profesores).where(Profesores.id == comentario.profesor_id)
-        fechtprofesor = session.exec(profesor).one_or_none()
-        
+
+        # Consulta al profesor
+        profesor_query = select(Profesores).where(Profesores.id == comentario.profesor_id)
+        fechtprofesor = session.exec(profesor_query).one_or_none()
+
+        if not fechtprofesor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profesor no encontrado"
+            )
+
+        # Crear el objeto de comentario
         comentario_data = Comentarios(
             id_profesor=comentario.profesor_id,
             planificacion_profesor_id=comentario.planificacion_profesor_id,
-            comentario=comentario.comentario,  # Fixed: Use the comentario string from DTO
+            comentario=comentario.comentario,
             fecha_enviado=datetime.now()
         )
-        
+
+        # Guardar el comentario en la base de datos
         session.add(comentario_data)
         session.commit()
         session.refresh(comentario_data)
-        
-        sender_email(fechtprofesor.email,
-                    f"Comentario de Planificación: {comentario.nombre_planificacion}_{comentario.periodo_nombre}",
-                    comentario.comentario)  # Fixed: Use comentario string
-        
+
+        # Enviar el correo electrónico
+        try:
+            sender_email(
+                fechtprofesor.email,  # Asegúrate de que esta propiedad exista
+                f"Comentario de Planificación: {comentario.nombre_planificacion}_{comentario.periodo_nombre}",
+                comentario.comentario  # El comentario como cuerpo del correo
+            )
+        except Exception as e:
+            print(f"Error al enviar el email: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Fallo al enviar el email"
+            )
+
         return comentario_data
         
     except Exception as e:
+        print(f"Error en la API: {e}")
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al guardar el comentario en la base de datos"
         ) from e
+
 
 
 
@@ -695,3 +788,21 @@ async def get_all_comentarios_planificacion(
             detail=f"Error al obtener las planificaciones: {str(e)}"
         )   
                 
+                
+def formatear_fecha(fecha):
+    if isinstance(fecha, str):
+        fecha_datetime = datetime.fromisoformat(fecha.replace('Z', '+00:00'))
+        fecha_datetime = fecha_datetime.astimezone(ZoneInfo("America/Guayaquil"))
+    else:
+        fecha_datetime = fecha.astimezone(ZoneInfo("America/Guayaquil"))
+    
+    # Obtener el formato en inglés primero
+    fecha_eng = fecha_datetime.strftime('%A, %d de %B de %Y hasta las %I:%M %p')
+    
+    # Traducir al español
+    for eng, esp in DIAS.items():
+        fecha_eng = fecha_eng.replace(eng, esp)
+    for eng, esp in MESES.items():
+        fecha_eng = fecha_eng.replace(eng, esp)
+    
+    return fecha_eng
