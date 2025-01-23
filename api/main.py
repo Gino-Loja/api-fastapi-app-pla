@@ -11,4 +11,4 @@ api_router.include_router(areas.router, prefix="/area", tags=["area"],  dependen
 api_router.include_router(asignaturas.router, prefix="/asignatura", tags=["asignatura"],  dependencies=[Depends(auth.get_current_active_user)])
 api_router.include_router(periodos.router, prefix="/periodo", tags=["periodo"],  dependencies=[Depends(auth.get_current_active_user)])
 api_router.include_router(planificaciones.router, prefix="/planificacion", tags=["planificacion"],  dependencies=[Depends(auth.get_current_active_user)])
-api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"],  dependencies=[Depends(auth.get_current_active_user)])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(auth.get_current_active_user)])

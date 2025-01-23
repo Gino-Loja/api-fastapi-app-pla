@@ -57,6 +57,7 @@ MESES = {
 async def create_planificacion(planificacion: Planificaciones, session: SessionDep) -> Any:
     try:
         # Verificar si el usuario (profesor) existe y obtener su email
+        
 
 
         profesor = select(Profesores).where(Profesores.id == planificacion.profesor_id)
@@ -73,8 +74,7 @@ async def create_planificacion(planificacion: Planificaciones, session: SessionD
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Usuario con id {planificacion.profesor_id} no encontrado"
             )
-        
-       
+            
         # Verificar si el usuario tiene un email asociado
         # sender_email(fechtprofesor.email,
         #             "Planificación de asignaturas",
@@ -369,6 +369,8 @@ async def subir_pdf(
             raise HTTPException(status_code=404, detail="Planificación no encontrada")
 
         # Lógica para determinar el estado
+        
+        
         
         if planificacion_profesor_id == id_usuario:
             estado = "revisado"
@@ -788,7 +790,56 @@ async def get_all_comentarios_planificacion(
             detail=f"Error al obtener las planificaciones: {str(e)}"
         )   
                 
+
+@router.delete("/delete/{planificacion_id}", response_description="Eliminar una planificación", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_planificacion(planificacion_id: int, session: SessionDep, request: Request) :
+    try:
+        # Verificar si la planificación existe
+        existing_planificacion = session.exec(
+            select(Planificaciones).where(Planificaciones.id == planificacion_id)
+        ).one_or_none()
+
+        if not existing_planificacion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se encontró la planificación con ID {planificacion_id}"
+            )
+
+        # Verificar si existe un archivo asociado y eliminarlo de FTP
+        planificacion_profesor = session.exec(
+            select(Planificacion_Profesor).where(Planificacion_Profesor.planificacion_id == planificacion_id)
+        ).one_or_none()
+        
+        if planificacion_profesor:
+            ftp_server: Optional[ftplib.FTP] = request.app.ftp
+            if ftp_server:
                 
+                if planificacion_profesor.archivo is not None:
+                    
+                    print(planificacion_profesor.archivo)
+                    
+                    try:
+                        ftp_server.delete(planificacion_profesor.archivo)
+                    except Exception as e:
+                        print(f"Error al eliminar archivo del FTP: {e}")
+            
+            # Eliminar archivo de la base de datos
+          
+
+        # Eliminar la planificación de la base de datos
+        session.delete(existing_planificacion)
+        session.commit()
+
+        return {"message": "Planificación eliminada correctamente"}
+
+    except SQLAlchemyError as e:
+        session.rollback()
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al eliminar la planificación"
+        ) from e   
+
 def formatear_fecha(fecha):
     if isinstance(fecha, str):
         fecha_datetime = datetime.fromisoformat(fecha.replace('Z', '+00:00'))

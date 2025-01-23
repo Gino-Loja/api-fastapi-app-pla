@@ -10,6 +10,7 @@ from jinja2 import Template
 from jwt.exceptions import InvalidTokenError
 from sqlmodel import select
 
+from api.routes.planificaciones import formatear_fecha
 from core.config import settings
 from core.db import engine
 from model import Planificacion_Profesor, Planificaciones, Profesores
@@ -157,6 +158,9 @@ def check_and_send_reminders() :
 
         for task in tasks:
             time_until_deadline = task.deadline - now
+            
+            fecha_formateada = formatear_fecha(task.deadline)
+
 
             # Enviar recordatorio 1 día antes
             if timedelta(days=1) <= time_until_deadline < timedelta(days=1, hours=1):
@@ -165,7 +169,7 @@ def check_and_send_reminders() :
                     template_name="info_docente.html",
                     subject=f"Recordatorio: {task.title}",
                     email_to=task.professor_email,
-                    message=f"Le recordamos que la tarea '{task.title}' tiene una fecha límite el {task.deadline}."
+                    message=f"Le recordamos que la tarea {task.title} tiene una fecha límite el {fecha_formateada}."
                 )
                 send_email(
                     email_to=task.professor_email,
@@ -180,13 +184,14 @@ def check_and_send_reminders() :
 
                         subject=f"Último recordatorio: {task.title}",
                         email_to=task.professor_email,
-                        message=f"La tarea '{task.title}' tiene una fecha límite en 3 horas ({task.deadline})."
+                        message=f"La tarea {task.title} tiene una fecha límite en 3 horas ({fecha_formateada})."
                     )
                 send_email(
                         email_to=task.professor_email,
                         subject=email.subject,
                         html_content=email.html_content,
                     )
+            
                 
             if timedelta(hours=1) <= time_until_deadline < timedelta(hours=1, minutes=1):
                 email = render_email_template_info(
@@ -194,7 +199,7 @@ def check_and_send_reminders() :
 
                     subject=f"Último recordatorio: {task.title}",
                     email_to=task.professor_email,
-                    message=f"La tarea '{task.title}' tiene una fecha límite en 1 horas ({task.deadline})."
+                    message=f"La tarea {task.title} tiene una fecha límite en 1 horas ({fecha_formateada})."
                 )
                 send_email(
                     email_to=task.professor_email,
@@ -203,47 +208,51 @@ def check_and_send_reminders() :
                 )
 
 
-
 def check_and_update_states():
     """
-    Verifica las planificaciones con fecha_subida pasada y actualiza su estado a 'atrasado'.
+    Verifica las planificaciones con fecha_subida pasada y actualiza su estado a 'atrasado'
+    solo si están en estado 'pendiente'.
     """
     try:
         print("Actualizando estados de planificaciones...")
-        with Session(engine) as session:  # Crear una sesión manualmente
+        with Session(engine) as session:
             now = datetime.now(tz("America/Guayaquil"))
 
-            # Obtener todas las planificaciones que no están en estado "atrasado"
-            statement = select(Planificacion_Profesor).where(Planificacion_Profesor.estado != "atrasado")
+            # Obtener todas las planificaciones que están en estado "pendiente"
+            statement = select(Planificacion_Profesor).where(
+                Planificacion_Profesor.estado == "pendiente"
+            )
             planificaciones = session.exec(statement).all()
 
             for planificacion in planificaciones:
-                # Verificar si la fecha límite ha pasado
+                # Obtener los detalles de la planificación
                 planificacion_detalle = session.exec(
                     select(Planificaciones).where(Planificaciones.id == planificacion.planificacion_id)
                 ).one_or_none()
 
+                # Verificar si la planificación tiene fecha_subida pasada
                 if planificacion_detalle and planificacion_detalle.fecha_subida < now:
                     # Cambiar el estado a 'atrasado'
                     planificacion.estado = "atrasado"
+                    session.add(planificacion)
 
                     # Notificar al profesor
-                    print(f"Notificar al profesor {planificacion.profesor_aprobador_id}")
                     profesor = session.exec(
                         select(Profesores).where(Profesores.id == planificacion_detalle.profesor_id)
                     ).one_or_none()
 
                     if profesor:
-                        
-                        session.add(planificacion)
-                        session.commit()
-                        
+                        fecha_formateada = formatear_fecha(planificacion_detalle.fecha_subida)
+
                         email = render_email_template_info(
                             template_name='info_docente.html',
                             subject=f"Notificación: Planificación atrasada - {planificacion_detalle.titulo}",
                             email_to=profesor.email,
-                            message=f"La planificación '{planificacion_detalle.titulo}' marcada para el {planificacion_detalle.fecha_subida} "
-                                 f"se encuentra atrasada. Por favor, comuníquese con el docente administrador."
+                            message=(
+                                f"La planificación {planificacion_detalle.titulo} marcada para el "
+                                f"{fecha_formateada} se encuentra atrasada. "
+                                "Por favor, comuníquese con el docente administrador."
+                            )
                         )
                         send_email(
                             email_to=profesor.email,
@@ -251,6 +260,8 @@ def check_and_update_states():
                             html_content=email.html_content,
                         )
 
+            # Confirmar los cambios en la base de datos
             session.commit()
+
     except Exception as e:
         print(f"Error al actualizar estados de planificaciones: {e}")

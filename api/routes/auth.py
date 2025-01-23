@@ -392,14 +392,14 @@ async def password_reset_form(token: str):
         )
     
     html_content = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Restablecer Contraseña</title>
-        <style>
-            body {{
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restablecer Contraseña</title>
+    <style>
+        body {{
                 font-family: Arial, sans-serif;
                 background-color: #f4f4f4;
                 margin: 0;
@@ -444,41 +444,64 @@ async def password_reset_form(token: str):
                 color: red;
                 font-size: 0.9em;
             }}
-        </style>
-        <script>
-            function validateForm() {{
-                const newPassword = document.getElementById('new_password').value;
-                const confirmPassword = document.getElementById('confirm_password').value;
-                const errorMessage = document.getElementById('error_message');
-                
-                if (newPassword.length < 8) {{
-                    errorMessage.textContent = 'La contraseña debe tener al menos 8 caracteres.';
-                    return false;
-                }}
-                if (newPassword !== confirmPassword) {{
-                    errorMessage.textContent = 'Las contraseñas no coinciden.';
-                    return false;
-                }}
-                errorMessage.textContent = '';
-                return true;
+    </style>
+    <script>
+        function validateForm() {{
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const errorMessage = document.getElementById('error_message');
+
+            // Validar longitud mínima de 8 caracteres
+            if (newPassword.length < 8) {{
+                errorMessage.textContent = 'La contraseña debe tener al menos 8 caracteres.';
+                return false;
             }}
-        </script>
-    </head>
-    <body>
-        <div class="container">
-            <h2>Restablecer tu contraseña</h2>
-            <form action="/auth/reset-password" method="post" onsubmit="return validateForm()">
-                <input type="hidden" name="token" value="{token}" />
-                <label for="new_password">Nueva Contraseña:</label>
-                <input type="password" id="new_password" name="new_password" required />
-                <label for="confirm_password">Confirmar Contraseña:</label>
-                <input type="password" id="confirm_password"  required />
-                <div id="error_message" class="error"></div>
-                <button type="submit">Restablecer Contraseña</button>
-            </form>
-        </div>
-    </body>
-    </html>
+
+            // Validar que contenga al menos una letra minúscula
+            if (!/[a-z]/.test(newPassword)){{
+                errorMessage.textContent = 'La contraseña debe contener al menos una letra minúscula.';
+                return false;
+            }}
+
+            // Validar que contenga al menos una letra mayúscula
+            if (!/[A-Z]/.test(newPassword)) {{
+                errorMessage.textContent = 'La contraseña debe contener al menos una letra mayúscula.';
+                return false;
+            }}
+
+            // Validar que contenga al menos un número
+            if (!/[0-9]/.test(newPassword)) {{
+                errorMessage.textContent = 'La contraseña debe contener al menos un número.';
+                return false;
+            }}
+
+            // Validar que las contraseñas coincidan
+            if (newPassword !== confirmPassword) {{
+                errorMessage.textContent = 'Las contraseñas no coinciden.';
+                return false;
+            }}
+
+            // Si todo está bien, limpiar el mensaje de error y permitir el envío del formulario
+            errorMessage.textContent = '';
+            return true;
+        }}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h2>Restablecer tu contraseña</h2>
+        <form action="/auth/reset-password" method="post" onsubmit="return validateForm()">
+            <input type="hidden" name="token" value="{token}" />
+            <label for="new_password">Nueva Contraseña:</label>
+            <input type="password" id="new_password" name="new_password" required />
+            <label for="confirm_password">Confirmar Contraseña:</label>
+            <input type="password" id="confirm_password" required />
+            <div id="error_message" class="error"></div>
+            <button type="submit">Restablecer Contraseña</button>
+        </form>
+    </div>
+</body>
+</html>
     """
     return HTMLResponse(content=html_content, status_code=200)
 
