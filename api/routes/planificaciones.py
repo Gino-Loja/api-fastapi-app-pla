@@ -3,23 +3,19 @@ from datetime import datetime
 import ftplib
 import io
 import os
-from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, Request, Response, HTTPException, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List, Optional
 from fastapi.responses import FileResponse
 from sqlalchemy import String, alias, cast, extract
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from zoneinfo import ZoneInfo
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import select , func
 from model import Areas, Comentarios, Comentarios_Dto, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
 from api.deps import SessionDep, sender_email
-from sqlalchemy.orm import aliased
-from ftplib import FTP
 import tempfile
 import io
 from typing import Optional
-from pytz import timezone as tz
-from utils import render_email_template_info, send_email
+from utils import formatear_fecha, render_email_template_info, send_email
 
 router = APIRouter()
 
@@ -839,21 +835,3 @@ async def delete_planificacion(planificacion_id: int, session: SessionDep, reque
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al eliminar la planificación"
         ) from e   
-
-def formatear_fecha(fecha):
-    if isinstance(fecha, str):
-        fecha_datetime = datetime.fromisoformat(fecha.replace('Z', '+00:00'))
-        fecha_datetime = fecha_datetime.astimezone(ZoneInfo("America/Guayaquil"))
-    else:
-        fecha_datetime = fecha.astimezone(ZoneInfo("America/Guayaquil"))
-    
-    # Obtener el formato en inglés primero
-    fecha_eng = fecha_datetime.strftime('%A, %d de %B de %Y hasta las %I:%M %p')
-    
-    # Traducir al español
-    for eng, esp in DIAS.items():
-        fecha_eng = fecha_eng.replace(eng, esp)
-    for eng, esp in MESES.items():
-        fecha_eng = fecha_eng.replace(eng, esp)
-    
-    return fecha_eng

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import emails  # type: ignore
 import jwt
@@ -28,7 +29,48 @@ class EmailData:
     html_content: str
     subject: str
 
+DIAS = {
+    'Monday': 'Lunes',
+    'Tuesday': 'Martes',
+    'Wednesday': 'Miércoles',
+    'Thursday': 'Jueves',
+    'Friday': 'Viernes',
+    'Saturday': 'Sábado',
+    'Sunday': 'Domingo'
+}
 
+MESES = {
+    'January': 'Enero',
+    'February': 'Febrero',
+    'March': 'Marzo',
+    'April': 'Abril',
+    'May': 'Mayo',
+    'June': 'Junio',
+    'July': 'Julio',
+    'August': 'Agosto',
+    'September': 'Septiembre',
+    'October': 'Octubre',
+    'November': 'Noviembre',
+    'December': 'Diciembre'
+}
+
+def formatear_fecha(fecha):
+    if isinstance(fecha, str):
+        fecha_datetime = datetime.fromisoformat(fecha.replace('Z', '+00:00'))
+        fecha_datetime = fecha_datetime.astimezone(ZoneInfo("America/Guayaquil"))
+    else:
+        fecha_datetime = fecha.astimezone(ZoneInfo("America/Guayaquil"))
+    
+    # Obtener el formato en inglés primero
+    fecha_eng = fecha_datetime.strftime('%A, %d de %B de %Y hasta las %I:%M %p')
+    
+    # Traducir al español
+    for eng, esp in DIAS.items():
+        fecha_eng = fecha_eng.replace(eng, esp)
+    for eng, esp in MESES.items():
+        fecha_eng = fecha_eng.replace(eng, esp)
+    
+    return fecha_eng
 def render_email_template(*, template_name: str, context: dict[str, Any]) -> str:
     template_str = (
         Path(__file__).parent / "email-templates" / "build" / template_name
