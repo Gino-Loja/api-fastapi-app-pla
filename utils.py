@@ -11,14 +11,12 @@ from jinja2 import Template
 from jwt.exceptions import InvalidTokenError
 from sqlmodel import select
 
-from api.routes.planificaciones import formatear_fecha
 from core.config import settings
 from core.db import engine
 from model import Planificacion_Profesor, Planificaciones, Profesores
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 from api.deps import SessionDep, get_db
 from pytz import timezone as tz
