@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Body, Request, Response, HTTPException, status,File, UploadFile, responses 
 from fastapi.encoders import jsonable_encoder
 #from model import  Prediccion, Datos_manuales, Estaciones
-from typing import Any, List,Annotated
+from typing import Any, List,Annotated, Optional
 #import numpy as np
 import os
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from sqlmodel import select , func
@@ -99,22 +100,36 @@ async def get_professor(profesor_id: int, session: SessionDep) -> Any:
     return profesor
 
 # Actualizar un profesor
-@router.put("/{profesor_id}", response_description="Actualizar un profesor")
-async def update_professor(profesor_id: int, profesor: Profesores, session: SessionDep) -> Any:
-    statement = select(Profesores).where(Profesores.id == profesor_id)
-
-    existing_profesor = session.exec(statement).one() 
-    # hero_2 = results.one() 
-    # existing_profesor = session.exec(statement).one_or_none()
+class ProfesorUpdate(BaseModel):
+    nombre: Optional[str] = None
+    email: Optional[str] = None
+    cedula: Optional[str] = None
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    rol: Optional[str] = None
+    estado: Optional[bool] = None
+    is_verified: Optional[bool] = None
+    password: Optional[str] = None  # Opcional en la actualización
     
+@router.put("/{profesor_id}", response_description="Actualizar un profesor")
+async def update_professor(profesor_id: int, profesor: ProfesorUpdate, session: SessionDep) -> Any:
+    statement = select(Profesores).where(Profesores.id == profesor_id)
+    existing_profesor = session.exec(statement).one_or_none()
+
     if not existing_profesor:
         raise HTTPException(status_code=404, detail="Profesor no encontrado")
 
-    updated_profesor_data = jsonable_encoder(profesor)
+    updated_profesor_data = profesor.dict(exclude_unset=True)  # Solo campos proporcionados
+
+    # Si no se proporciona una contraseña, no la actualizamos
+    if "password" in updated_profesor_data and updated_profesor_data["password"] is not None:
+        updated_profesor_data["password"] = get_password_hash(updated_profesor_data["password"])
+    else:
+        updated_profesor_data.pop("password", None)  # Elimina el campo si no se proporciona
+
     for key, value in updated_profesor_data.items():
-        if key != "id":  # Evita modificar el ID manualmente
-            setattr(existing_profesor, key, value)
-  
+        setattr(existing_profesor, key, value)
+
     session.add(existing_profesor)
     session.commit()
     session.refresh(existing_profesor)

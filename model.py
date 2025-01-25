@@ -88,6 +88,7 @@ class Asignaturas(SQLModel, table=True):
     codigo: str = Field(..., max_length=50, description="Código único de la asignatura")
     nombre: str = Field(..., max_length=100, description="Nombre de la asignatura")
     descripcion: Optional[str] = Field(default=None, description="Descripción de la asignatura")
+    paralelo: Optional[str] = Field(default=None, description="Paralelo de la asignatura")
     area_id: Optional[int] = Field(foreign_key="areas.id")
     curso: str = Field(..., max_length=50, description="Curso de la asignatura")
 

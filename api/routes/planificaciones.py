@@ -3,7 +3,8 @@ from datetime import datetime
 import ftplib
 import io
 import os
-from fastapi import APIRouter, File, Form, Request, Response, HTTPException, UploadFile, status
+
+from fastapi import APIRouter, File, Form, Request, Response, HTTPException, UploadFile, status,BackgroundTasks
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List, Optional
 from fastapi.responses import FileResponse
@@ -50,7 +51,7 @@ MESES = {
 
 
 @router.post("/create", response_description="Agregar nueva planificación", status_code=status.HTTP_201_CREATED)
-async def create_planificacion(planificacion: Planificaciones, session: SessionDep) -> Any:
+async def create_planificacion(planificacion: Planificaciones, session: SessionDep,background_tasks: BackgroundTasks) -> Any:
     try:
         # Verificar si el usuario (profesor) existe y obtener su email
         
@@ -84,11 +85,14 @@ async def create_planificacion(planificacion: Planificaciones, session: SessionD
         message=f"Se ha creado una nueva planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega {fecha_formateada}",
         subject="Planificación de asignaturas"
         )
-        send_email(
+        
+        background_tasks.add_task(
+            send_email,
             email_to=fechtprofesor.email,
             subject=email_data.subject,
             html_content=email_data.html_content,
         )
+        
         # Crear una nueva instancia del modelo Planificacion
         
         planificaciones_data = jsonable_encoder(planificacion)
@@ -114,7 +118,7 @@ async def create_planificacion(planificacion: Planificaciones, session: SessionD
 
 
 @router.put("/update/{planificacion_id}", response_description="Actualizar una planificación", status_code=status.HTTP_200_OK)
-async def update_planificacion(planificacion_id: int, updated_data: Planificaciones, session: SessionDep, request: Request) -> Any:
+async def update_planificacion(planificacion_id: int, updated_data: Planificaciones, session: SessionDep, request: Request,background_tasks: BackgroundTasks) -> Any:
     try:
         # Verificar si la planificación existe
         existing_planificacion = session.exec(
@@ -172,7 +176,9 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
             message=f"Se ha Actualizado la planificación para la asignatura {fechtAsignatura.nombre} con fecha de entrega de {fecha_formateada}",
             subject="Actualización de planificación de asignaturas"
         )
-        send_email(
+
+        background_tasks.add_task(
+            send_email,
             email_to=fechtprofesor.email,
             subject=email_data.subject,
             html_content=email_data.html_content,
@@ -193,7 +199,7 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
             detail="Error al guardar la planificación en la base de datos, tal vez la asignatura no está asignada a ningún área"
         ) from e
         
-        
+
 @router.get("/search/", response_description="Listar todas las planificaciones", response_model=List[Any])
 async def get_all_planificaciones(
     query: int, 
@@ -210,6 +216,7 @@ async def get_all_planificaciones(
                 Planificacion_Profesor.planificacion_id,
                 Profesores.nombre.label("profesor_nombre"),
                 Asignaturas.nombre.label("asignatura_nombre"),
+                Asignaturas.curso.label("curso_nombre"),  # Agregar el nombre del curso
                 Periodo.nombre.label("periodo_nombre"),
                 # Información del profesor aprobador
                 Planificacion_Profesor.profesor_aprobador_id,
@@ -239,18 +246,16 @@ async def get_all_planificaciones(
                 isouter=True
             )
             .where(Planificaciones.periodo_id == query)
-            
             .where(cast(extract('month', Planificaciones.fecha_subida), String).ilike(f'%{mes}%'))
             .where(cast(extract('year', Planificaciones.fecha_subida), String).ilike(f'%{year}%'))
-
         )
         
         # Ejecutar la consulta y obtener los resultados
         planificaciones = session.exec(query).all()
 
         # Obtener los IDs de profesores aprobadores y revisores
-        profesor_aprobador_ids = [p[6] for p in planificaciones if p[6] is not None]  # índice 4 es profesor_aprobador_id
-        profesor_revisor_ids = [p[7] for p in planificaciones if p[7] is not None]    # índice 5 es profesor_revisor_id
+        profesor_aprobador_ids = [p[7] for p in planificaciones if p[7] is not None]  # índice 6 es profesor_aprobador_id
+        profesor_revisor_ids = [p[8] for p in planificaciones if p[8] is not None]    # índice 7 es profesor_revisor_id
 
         # Consultar nombres de profesores aprobadores
         aprobadores = {}
@@ -288,6 +293,7 @@ async def get_all_planificaciones(
                 "profesor_nombre": profesor_nombre,
                 "periodo_nombre": periodo_nombre,
                 "asignatura_nombre": asignatura_nombre,
+                "curso_nombre": curso_nombre,  # Agregar el nombre del curso
                 
                 # Información del área
                 "area_id": area_id,
@@ -308,7 +314,7 @@ async def get_all_planificaciones(
                 "archivo": archivo,
             }
             for (
-                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, periodo_nombre,
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, curso_nombre, periodo_nombre,
                 profesor_aprobador_id, profesor_revisor_id,
                 area_id, area_nombre, area_codigo,
                 fecha_de_actualizacion, estado, archivo
@@ -323,7 +329,140 @@ async def get_all_planificaciones(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener las planificaciones: {str(e)}"
         )
-    
+
+
+@router.get("/search/revisor/", response_description="Listar todas las planificaciones de un profesor revisor", response_model=List[Any])
+async def get_planificaciones_by_revisor(
+    profesor_id: int,  # ID del profesor (no del areas_profesor)
+    query: int,  # ID del periodo
+    mes: str,  # Mes de la planificación
+    year: str,  # Año de la planificación
+    session: SessionDep
+) -> Any:
+    try:
+        # Realizamos el join entre todas las tablas necesarias
+        query_planificaciones = (
+            select(
+                Planificaciones,
+                Planificacion_Profesor.id,
+                Planificacion_Profesor.planificacion_id,
+                Profesores.nombre.label("profesor_nombre"),
+                Asignaturas.nombre.label("asignatura_nombre"),
+                Asignaturas.curso.label("curso_nombre"),  # Agregar el nombre del curso
+
+                Periodo.nombre.label("periodo_nombre"),
+                
+                Planificacion_Profesor.profesor_aprobador_id,
+                Planificacion_Profesor.profesor_revisor_id,
+                Areas.id.label("area_id"),
+                Areas.nombre.label("area_nombre"),
+                Areas.codigo.label("area_codigo"),
+                Planificacion_Profesor.fecha_de_actualizacion,
+                Planificacion_Profesor.estado,
+                Planificacion_Profesor.archivo,
+            )
+            .join(Profesores, Planificaciones.profesor_id == Profesores.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .join(Periodo, Planificaciones.periodo_id == Periodo.id)
+            .join(Areas, Asignaturas.area_id == Areas.id)
+            .join(
+                Planificacion_Profesor,
+                Planificaciones.id == Planificacion_Profesor.planificacion_id
+            )
+            .join(
+                areas_profesor,
+                Planificacion_Profesor.profesor_revisor_id == areas_profesor.id,
+                isouter=True
+            )
+            .where(areas_profesor.profesor_id == profesor_id)  # Filtrar por el ID del profesor en areas_profesor
+            .where(Planificaciones.periodo_id == query)  # Filtrar por el periodo
+            .where(cast(extract('month', Planificaciones.fecha_subida), String).ilike(f'%{mes}%'))  # Filtrar por mes
+            .where(cast(extract('year', Planificaciones.fecha_subida), String).ilike(f'%{year}%'))  # Filtrar por año
+        )
+        
+        # Ejecutar la consulta y obtener los resultados
+        planificaciones = session.exec(query_planificaciones).all()
+
+        # Obtener los IDs de profesores aprobadores y revisores
+        profesor_aprobador_ids = [p[7] for p in planificaciones if p[7] is not None]  # índice 6 es profesor_aprobador_id
+        profesor_revisor_ids = [p[8] for p in planificaciones if p[8] is not None]    # índice 7 es profesor_revisor_id
+
+        # Consultar nombres de profesores aprobadores
+        aprobadores = {}
+        if profesor_aprobador_ids:
+            query_aprobadores = select(Profesores).where(Profesores.id.in_(profesor_aprobador_ids))
+            aprobadores = {p.id: p.nombre for p in session.exec(query_aprobadores)}
+
+        # Consultar nombres de profesores revisores a través de Areas_Profesor
+        revisores = {}
+        if profesor_revisor_ids:
+            query_revisores = (
+                select(areas_profesor, Profesores.nombre)
+                .join(Profesores, areas_profesor.profesor_id == Profesores.id)
+                .where(areas_profesor.id.in_(profesor_revisor_ids))
+            )
+            revisores = {ap.id: nombre for ap, nombre in session.exec(query_revisores)}
+
+        # Crear una lista de resultados con los campos deseados
+        result = [
+            {
+                # Información básica de la planificación
+                "titulo": planificacion.titulo,
+                "descripcion": planificacion.descripcion,
+                "fecha_subida": planificacion.fecha_subida,
+                
+                # IDs de relaciones
+                "profesor_id": planificacion.profesor_id,
+                "asignaturas_id": planificacion.asignaturas_id,
+                "periodo_id": planificacion.periodo_id,
+
+                "id": id,
+                "id_planificacion": planificacion_id,
+                
+                # Nombres de las relaciones principales
+                "profesor_nombre": profesor_nombre,
+                "periodo_nombre": periodo_nombre,
+                "asignatura_nombre": asignatura_nombre,
+                "curso_nombre": curso_nombre,  # Agregar el nombre del curso
+                
+                # Información del área
+                "area_id": area_id,
+                "area_nombre": area_nombre,
+                "area_codigo": area_codigo,
+                
+                # Información del profesor aprobador
+                "profesor_aprobador_id": profesor_aprobador_id,
+                "profesor_aprobador_nombre": aprobadores.get(profesor_aprobador_id) if profesor_aprobador_id else None,
+                
+                # Información del profesor revisor
+                "profesor_revisor_id": profesor_revisor_id,
+                "profesor_revisor_nombre": revisores.get(profesor_revisor_id) if profesor_revisor_id else None,
+                
+                # Información adicional de la planificación
+                "fecha_de_actualizacion": fecha_de_actualizacion,
+                "estado": estado,
+                "archivo": archivo,
+            }
+            for (
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre,curso_nombre, periodo_nombre,
+                profesor_aprobador_id, profesor_revisor_id,
+                area_id, area_nombre, area_codigo,
+                fecha_de_actualizacion, estado, archivo
+            ) in planificaciones
+        ]
+        
+        return result
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones: {str(e)}"
+        )
+
+
+
+
 
 BASE_UPLOAD_DIR = "uploads"
 
@@ -399,9 +538,9 @@ async def subir_pdf(
 
         # Verificar si el archivo ya existe
         archivos_en_directorio = ftp_server.nlst()
-        if nombre_archivo in archivos_en_directorio:
+        if planificacion_profesor.archivo in archivos_en_directorio:
             # Eliminar el archivo existente
-            ftp_server.delete(nombre_archivo)
+            ftp_server.delete(planificacion_profesor.archivo)
 
         # Subir el nuevo archivo
         contenido = await pdf.read()
@@ -556,6 +695,8 @@ async def get_all_planificaciones(
                 Planificacion_Profesor.planificacion_id,
                 Profesores.nombre.label("profesor_nombre"),
                 Asignaturas.nombre.label("asignatura_nombre"),
+                Asignaturas.curso.label("curso_nombre"),
+
                 Periodo.nombre.label("periodo_nombre"),
                 Planificacion_Profesor.profesor_aprobador_id,
                 Planificacion_Profesor.profesor_revisor_id,
@@ -590,8 +731,8 @@ async def get_all_planificaciones(
         planificaciones = session.exec(query_planificaciones).all()
 
         # Obtener los IDs de profesores aprobadores y revisores
-        profesor_aprobador_ids = [p[6] for p in planificaciones if p[6] is not None]
-        profesor_revisor_ids = [p[7] for p in planificaciones if p[7] is not None]
+        profesor_aprobador_ids = [p[7] for p in planificaciones if p[7] is not None]
+        profesor_revisor_ids = [p[8] for p in planificaciones if p[8] is not None]
 
         # Consultar nombres de profesores aprobadores
         aprobadores = {}
@@ -623,6 +764,7 @@ async def get_all_planificaciones(
                 "profesor_nombre": profesor_nombre,
                 "periodo_nombre": periodo_nombre,
                 "asignatura_nombre": asignatura_nombre,
+                "curso_nombre": curso_nombre,
                 "area_id": area_id,
                 "area_nombre": area_nombre,
                 "area_codigo": area_codigo,
@@ -635,7 +777,7 @@ async def get_all_planificaciones(
                 "archivo": archivo,
             }
             for (
-                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, periodo_nombre,
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre,curso_nombre, periodo_nombre,
                 profesor_aprobador_id, profesor_revisor_id,
                 area_id, area_nombre, area_codigo,
                 fecha_de_actualizacion, estado, archivo
@@ -835,3 +977,4 @@ async def delete_planificacion(planificacion_id: int, session: SessionDep, reque
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al eliminar la planificación"
         ) from e   
+

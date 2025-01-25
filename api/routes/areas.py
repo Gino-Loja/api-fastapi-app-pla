@@ -81,7 +81,7 @@ async def update_area(area_id: int, area: Areas, session: SessionDep) -> Any:
 # Eliminar un área
 @router.delete("/delete/{area_id}", response_description="Eliminar un área")
 async def delete_area(area_id: int, session: SessionDep) -> Any:
-    statement = select(Areas).where(Areas.id == area_id)
+    statement = select(areas_profesor).where(areas_profesor.id == area_id)
     area = session.exec(statement).one_or_none()
 
     if not area:
@@ -173,25 +173,25 @@ async def search_area( session: SessionDep) -> Any:
         ) from e
     
 
+
+
 @router.post("/areas-profesor", response_description="Guardar área para el profesor", status_code=status.HTTP_201_CREATED)
 async def create_area_profesor(data: areas_profesor, session: SessionDep):
     try:
         # Verificar si el profesor ya está asignado a esta área
-        # Crear un nuevo registro en la tabla areas_profesor
-         # Buscar el registro en la tabla areas_profesor
-        area_profesor = session.query(areas_profesor).filter(
+        existing_assignment = session.query(areas_profesor).filter(
             areas_profesor.profesor_id == data.profesor_id,
             areas_profesor.area_id == data.area_id
         ).first()
 
-        # Si no se encuentra el registro, lanzar una excepción
-        if  area_profesor:
+        # Si ya existe una asignación, lanzar una excepción
+        if existing_assignment:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Ya existe una asignación de área para este profesor."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El profesor ya está asignado a esta área."
             )
 
-
+        # Crear un nuevo registro en la tabla areas_profesor
         new_entry = areas_profesor(
             profesor_id=data.profesor_id,
             area_id=data.area_id,
@@ -208,66 +208,30 @@ async def create_area_profesor(data: areas_profesor, session: SessionDep):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al guardar el registro en la base de datos: {str(e)}"
         )
-
-
-@router.delete("/areas-profesor/delete/{area_id}", response_description="Eliminar área del profesor", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_area_profesor(area_id:int, session: SessionDep):
-    try:
-        # Buscar el registro en la tabla areas_profesor
-        area_profesor = session.query(areas_profesor).filter(
-            areas_profesor.id == area_id
-        ).first()
-
-        # Si no se encuentra el registro, lanzar una excepción
-        if not area_profesor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No se encontró la asignación del profesor a esta área."
-            )
-
-        # Eliminar el registro
-        session.delete(area_profesor)
-        session.commit()
-
-        return {"message": "Asignación eliminada exitosamente."}
-
-    except Exception as e:
-
-        print(e)
-
-       
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al eliminar el registro de la base de datos: {str(e)}"
-        )
-    
-
+        
 @router.put("/areas-profesor/update/{area_id}", response_description="Actualizar un área para el profesor")
 async def update_area_profesor(area_id: int, data: areas_profesor, session: SessionDep) -> Any:
     try:
-        area_profesor = session.query(areas_profesor).filter(
-            areas_profesor.profesor_id == data.profesor_id,
-            areas_profesor.area_id == data.area_id
-        ).first()
-        
-        print(area_profesor)
-
-        # Si no se encuentra el registro, lanzar una excepción
-        if  area_profesor is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Ya existe una asignación de área para este profesor."
-            )
         # Buscar el registro existente
         statement = select(areas_profesor).where(areas_profesor.id == area_id)
         existing_entry = session.exec(statement).one_or_none()
 
-
         if not existing_entry:
-            raise HTTPException(status_code=404, detail="Área no encontrada")
-        
+            raise HTTPException(status_code=404, detail="Asignación no encontrada")
 
+        # Verificar si ya existe otra asignación del profesor a la misma área (excluyendo el registro actual)
+        duplicate_assignment = session.query(areas_profesor).filter(
+            areas_profesor.profesor_id == data.profesor_id,
+            areas_profesor.area_id == data.area_id,
+            areas_profesor.id != area_id  # Excluir el registro actual
+        ).first()
 
+        # Si ya existe una asignación duplicada, lanzar una excepción
+        if duplicate_assignment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El profesor ya está asignado a esta área."
+            )
 
         # Actualizar los campos del registro con los nuevos datos
         updated_data = jsonable_encoder(data)
@@ -286,4 +250,5 @@ async def update_area_profesor(area_id: int, data: areas_profesor, session: Sess
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al actualizar el registro en la base de datos: {str(e)}"
-        )
+        )     
+

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 import ftplib
 import io
 import os
@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import String, alias, cast, extract, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from zoneinfo import ZoneInfo
-from sqlmodel import SQLModel, select , func
+from sqlmodel import SQLModel, and_, select , func
 from model import Areas, Comentarios, Comentarios_Dto, areas_profesor, Asignaturas, Periodo, Planificacion_Profesor, Planificaciones, Profesores
 from api.deps import SessionDep, sender_email
 from sqlalchemy.orm import aliased
@@ -18,6 +18,12 @@ import io
 from typing import Optional
 from pytz import timezone as tz
 from utils import render_email_template_info, send_email
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
+from fastapi import HTTPException, status
+from fastapi.responses import StreamingResponse
+import io  # Importar io para trabajar con archivos en memoria
+
 
 router = APIRouter()
 class Total_profesores(SQLModel):
@@ -64,11 +70,16 @@ async def get_total_asignaturas(session: SessionDep) -> Any:
     
     
 @router.get("/planificaciones/count-by-estado", response_description="Obtener la cantidad de planificaciones por estado")
-async def get_planificaciones_count_by_estado(session: SessionDep) -> Any:
+async def get_planificaciones_count_by_estado(
+    periodo_id: int,  # Nuevo parámetro para filtrar por período
+    session: SessionDep
+) :
     try:
-        # Consulta para contar planificaciones agrupadas por estado
+        # Consulta para contar planificaciones agrupadas por estado y filtrar por período
         statement = (
             select(Planificacion_Profesor.estado, func.count(Planificacion_Profesor.id).label("total"))
+            .join(Planificaciones, Planificaciones.id == Planificacion_Profesor.planificacion_id)  # Unir con Planificaciones
+            .where(Planificaciones.periodo_id == periodo_id)  # Filtrar por período
             .group_by(Planificacion_Profesor.estado)
         )
         results = session.exec(statement).all()
@@ -83,28 +94,27 @@ async def get_planificaciones_count_by_estado(session: SessionDep) -> Any:
             detail="Error al obtener las planificaciones por estado"
         ) from e
 
-
 @router.get("/docentes/atrasados", response_description="Obtener lista de docentes con planificaciones atrasadas")
-async def get_docentes_atrasados(session: SessionDep) -> Any:
+async def get_docentes_atrasados(session: SessionDep, periodo_id: int) -> Any:
     try:
-        # Alias de tablas para facilitar la consulta
-        profesores_alias = aliased(Profesores)
-        planificaciones_alias = aliased(Planificaciones)
-        periodos_alias = aliased(Periodo)
-
         # Consulta para obtener docentes con planificaciones atrasadas
         statement = (
             select(
-                profesores_alias.id,
-                profesores_alias.nombre,
-                planificaciones_alias.titulo,
-                planificaciones_alias.fecha_subida,
-                periodos_alias.nombre.label("nombre_periodo"),
-                periodos_alias.fecha_fin.label("fecha_limite")
+                Profesores.id,
+                Profesores.nombre,
+                Planificaciones.titulo,
+                Planificaciones.fecha_subida,
+                Areas.nombre.label("area_nombre"),
+                Asignaturas.nombre.label("asignatura_nombre"),
             )
-            .join(planificaciones_alias, planificaciones_alias.profesor_id == profesores_alias.id)
-            .join(periodos_alias, planificaciones_alias.periodo_id == periodos_alias.id)
-            .where(planificaciones_alias.fecha_subida > periodos_alias.fecha_fin)
+            .join(Planificaciones, Planificaciones.profesor_id == Profesores.id)  # Unir Profesores con Planificaciones
+            .join(Planificacion_Profesor, Planificacion_Profesor.planificacion_id == Planificaciones.id)  # Unir Planificaciones con Planificacion_Profesor
+            .join(Asignaturas, Asignaturas.id == Planificaciones.asignaturas_id)  # Unir Planificaciones con Asignaturas
+            .join(Areas, Areas.id == Asignaturas.area_id)  # Unir Asignaturas con Areas
+            .where(
+                Planificacion_Profesor.estado == "atrasado",  # Filtrar por estado "atrasado"
+                Planificaciones.periodo_id == periodo_id  # Filtrar por periodo_id
+            )
         )
 
         results = session.exec(statement).all()
@@ -116,19 +126,19 @@ async def get_docentes_atrasados(session: SessionDep) -> Any:
                 "nombre_profesor": result.nombre,
                 "titulo_planificacion": result.titulo,
                 "fecha_subida": result.fecha_subida,
-                "nombre_periodo": result.nombre_periodo,
-                "fecha_limite": result.fecha_limite,
+                "area_nombre": result.area_nombre,
+                "asignatura_nombre": result.asignatura_nombre,
             }
             for result in results
         ]
 
-        return {"docentes_atrasados": docentes_atrasados}
+        return docentes_atrasados
     except Exception as e:
+        print("Error en la consulta:", str(e))  # Imprimir el error para depuración
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener docentes con planificaciones atrasadas"
+            detail=f"Error al obtener docentes con planificaciones atrasadas: {str(e)}"
         ) from e
-
 
 @router.get("/docentes/por-estado", response_description="Obtener lista de docentes según el estado de la planificación")
 async def get_docentes_por_estado(session: SessionDep, estado: Optional[str] = None) -> Any:
@@ -239,11 +249,12 @@ async def get_usuarios_por_estado(session: SessionDep, estado: Optional[str] = N
         ) from e
 
 
-
+#
 @router.get("/metricas/total-planificaciones-asignadas", response_description="Obtener el total de planificaciones asignadas")
-async def get_total_planificaciones_asignadas(session: SessionDep) -> Any:
+async def get_total_planificaciones_asignadas(session: SessionDep, periodo_id: int) -> Any:
     try:
-        statement = select(func.count()).select_from(Planificacion_Profesor)
+        statement = select(func.count()).select_from(Planificacion_Profesor).join(Planificaciones, Planificaciones.id == Planificacion_Profesor.planificacion_id).where(Planificaciones.periodo_id == periodo_id)
+        
         total = session.exec(statement).one()
         return {"total_planificaciones_asignadas": total}
     except Exception as e:
@@ -251,28 +262,35 @@ async def get_total_planificaciones_asignadas(session: SessionDep) -> Any:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener el total de planificaciones asignadas"
         ) from e
-        
+  #      
+
 @router.get("/metricas/planificaciones-por-area", response_description="Obtener planificaciones por área")
-async def get_planificaciones_por_area(session: SessionDep) -> Any:
+async def get_planificaciones_por_area(session: SessionDep, periodo_id: int) -> Any:
     try:
         statement = (
             select(Areas.nombre, func.count().label("total_planificaciones"))
             .join(Asignaturas, Areas.id == Asignaturas.area_id)
             .join(Planificaciones, Asignaturas.id == Planificaciones.asignaturas_id)
+            .join(Periodo, Periodo.id == Planificaciones.periodo_id)
+
             .group_by(Areas.nombre)
+            .where(Planificaciones.periodo_id == periodo_id)
+
+            
         )
         results = session.exec(statement).all()
 
         # Convertir las filas a una lista de diccionarios
         planificaciones = [{"nombre": row[0], "total_planificaciones": row[1]} for row in results]
 
-        return {"planificaciones_por_area": planificaciones}
+        return  planificaciones
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener las métricas de planificaciones por área"
+            detail=f"Error al obtener las métricas de planificaciones por área ${str(e)}"
         ) from e
-        
+
         
 @router.get("/metricas/planificaciones-aprobadas-vs-pendientes", response_description="Obtener planificaciones aprobadas vs pendientes")
 async def get_planificaciones_aprobadas_vs_pendientes(session: SessionDep) -> Any:
@@ -285,9 +303,9 @@ async def get_planificaciones_aprobadas_vs_pendientes(session: SessionDep) -> An
         results = session.exec(statement).all()
         
         if  len(results) == 0:
-            return {"planificaciones_aprobadas_vs_pendientes": {"aprobado": 0, "pendiente": 0}}
+            return  {"aprobado": 0, "pendiente": 0}
         
-        return {"planificaciones_aprobadas_vs_pendientes": {result.estado: result.total for result in results}}
+        return  {result.estado: result.total for result in results}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -295,16 +313,18 @@ async def get_planificaciones_aprobadas_vs_pendientes(session: SessionDep) -> An
         ) from e
         
 @router.get("/metricas/profesores-con-mas-planificaciones-atrasadas", response_description="Obtener profesores con más planificaciones atrasadas")
-async def get_profesores_con_mas_planificaciones_atrasadas(session: SessionDep):
+async def get_profesores_con_mas_planificaciones_atrasadas(session: SessionDep, periodo_id: int):
     try:
         statement = (
             select(Profesores.nombre, func.count().label("total_atrasadas"))
             .join(Planificaciones, Profesores.id == Planificaciones.profesor_id)
             .join(Periodo, Planificaciones.periodo_id == Periodo.id)
             .join(Planificacion_Profesor, Planificaciones.id == Planificacion_Profesor.planificacion_id)  # Asegura la relación
-            .where(Planificacion_Profesor.estado == "atrasado")
+            .where(Planificacion_Profesor.estado == "atrasado", Planificaciones.periodo_id == periodo_id)
+            
             .group_by(Profesores.nombre)
             .order_by(func.count().desc())
+            
         )
         results = session.exec(statement).all()
         
@@ -313,7 +333,7 @@ async def get_profesores_con_mas_planificaciones_atrasadas(session: SessionDep):
         # Convertir los resultados en una lista de diccionarios
         profesores_atrasados = [{"nombre": row[0], "total_atrasadas": row[1]} for row in results]
 
-        return {"profesores_con_mas_planificaciones_atrasadas": profesores_atrasados}
+        return  profesores_atrasados
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -342,6 +362,123 @@ async def get_planificaciones_por_periodo(session: SessionDep) -> Any:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener las métricas de planificaciones por periodo"
         ) from e
+
+
+@router.get("/metricas/planificaciones-por-estado-por-area", response_description="Obtener el total de planificaciones por estado para cada área, agrupado por fecha_subida")
+async def get_planificaciones_por_estado_por_area(session: SessionDep, periodo_id: int):
+    try:
+        # Consulta para obtener el total de planificaciones por estado para cada área, agrupado por fecha_subida
+        statement = (
+            select(
+                Areas.nombre.label("nombre_area"),
+                Planificacion_Profesor.estado,
+                Planificaciones.fecha_subida,
+                func.count().label("total_planificaciones")
+            )
+            .join(Asignaturas, Areas.id == Asignaturas.area_id)
+            .join(Planificaciones, Asignaturas.id == Planificaciones.asignaturas_id)
+            .join(Planificacion_Profesor, Planificaciones.id == Planificacion_Profesor.planificacion_id)
+            .where(Planificaciones.periodo_id == periodo_id)
+            .group_by(Areas.nombre, Planificacion_Profesor.estado, Planificaciones.fecha_subida)
+        )
+
+        results = session.exec(statement).all()
+
+        # Formatear los resultados en una lista de diccionarios
+        planificaciones_por_estado_por_area = [
+            {
+                "nombre_area": result.nombre_area,
+                "estado": result.estado,
+                "fecha_subida": result.fecha_subida,
+                "total_planificaciones": result.total_planificaciones,
+            }
+            for result in results
+        ]
+
+        return planificaciones_por_estado_por_area
+
+    except Exception as e:
+        print(f"Error en la consulta: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las métricas de planificaciones por estado por área: {str(e)}"
+        ) from e
+
+@router.get("/metricas/documentos-entregados-rango/", response_description="Listar documentos entregados en un rango de fechas", response_model=List[Any])
+async def get_documentos_entregados_rango(
+    fecha_inicio: date,  # Fecha de inicio del rango
+    fecha_fin: date,     # Fecha de fin del rango
+    session: SessionDep
+) -> Any:
+    try:
+        # Crear alias para la tabla Profesores
+        ProfesoresAsignado = aliased(Profesores)
+        ProfesoresRevisor = aliased(Profesores)
+
+        # Realizamos el join entre las tablas necesarias
+        query = (
+            select(
+                Planificaciones.titulo,
+                Planificaciones.descripcion,
+                Planificaciones.fecha_subida,
+                Planificacion_Profesor.fecha_de_actualizacion,
+                Planificacion_Profesor.estado,
+                ProfesoresAsignado.nombre.label("profesor_asignado_nombre"),  # Profesor asignado para subir
+                areas_profesor.profesor_id.label("profesor_revisor_id"),  # ID del profesor revisor
+                ProfesoresRevisor.nombre.label("profesor_revisor_nombre"),  # Nombre del profesor revisor
+                Asignaturas.nombre.label("nombre_asignatura"),  # Nombre de la asignatura
+                Asignaturas.curso,  # Curso de la asignatura
+                Areas.nombre.label("nombre_area")  # Nombre del área
+            )
+            .join(Planificacion_Profesor, Planificaciones.id == Planificacion_Profesor.planificacion_id)
+            .join(ProfesoresAsignado, Planificaciones.profesor_id == ProfesoresAsignado.id)  # Profesor asignado
+            .join(areas_profesor, Planificacion_Profesor.profesor_revisor_id == areas_profesor.id, isouter=True)  # Profesor revisor
+            .join(ProfesoresRevisor, areas_profesor.profesor_id == ProfesoresRevisor.id, isouter=True)  # Nombre del profesor revisor
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)  # Asignatura
+            .join(Areas, Asignaturas.area_id == Areas.id)  # Área
+            .where(
+                and_(
+                    Planificacion_Profesor.fecha_de_actualizacion >= fecha_inicio,
+                    Planificacion_Profesor.fecha_de_actualizacion <= fecha_fin
+                )
+            )  # Filtrar por rango de fechas
+        )
+
+        # Ejecutar la consulta y obtener los resultados
+        documentos = session.exec(query).all()
+
+        # Formatear la respuesta
+        result = [
+            {
+                "titulo": documento.titulo,
+                "descripcion": documento.descripcion,
+                "fecha_subida": documento.fecha_subida,
+                "fecha_actualizacion": documento.fecha_de_actualizacion,
+                "estado": documento.estado,
+                "profesor_asignado_nombre": documento.profesor_asignado_nombre,
+                "profesor_revisor_nombre": documento.profesor_revisor_nombre,
+                "nombre_asignatura": documento.nombre_asignatura,
+                "curso": documento.curso,
+                "nombre_area": documento.nombre_area,
+            }
+            for documento in documentos
+        ]
+
+        return result
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener los documentos entregados: {str(e)}"
+        )
+
+
+
+
+
+
+
 
 #mis planificaciones por estado
 @router.get("/metricas/mis-planificaciones-por-estado/{profesor_id}", response_description="Obtener las planificaciones de un profesor por estado")
@@ -523,3 +660,217 @@ async def get_asignaturas_con_planificaciones(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener las asignaturas con planificaciones asignadas"
         ) from e
+        
+        
+
+@router.get("/search/", response_description="Listar todas las planificaciones", response_model=List[Any])
+async def get_all_planificaciones_descargar(
+    periodo_id: int,  # Solo necesitamos el ID del periodo
+    session: SessionDep
+) -> Any:
+    try:
+        # Realizamos el join entre todas las tablas necesarias
+        query = (
+            select(
+                Planificaciones,
+                Planificacion_Profesor.id,
+                Planificacion_Profesor.planificacion_id,
+                Profesores.nombre.label("profesor_nombre"),
+                Asignaturas.nombre.label("asignatura_nombre"),
+                Asignaturas.curso.label("curso_nombre"),  # Agregar el nombre del curso
+                Asignaturas.paralelo.label("paralelo"),  # Agregar el paralelo
+                Periodo.nombre.label("periodo_nombre"),
+                # Información del profesor aprobador
+                Planificacion_Profesor.profesor_aprobador_id,
+                # Información del profesor revisor
+                Planificacion_Profesor.profesor_revisor_id,
+                # Información del área
+                Areas.id.label("area_id"),
+                Areas.nombre.label("area_nombre"),
+                Areas.codigo.label("area_codigo"),
+                # Información adicional de la planificación
+                Planificacion_Profesor.fecha_de_actualizacion,
+                Planificacion_Profesor.estado,
+                Planificacion_Profesor.archivo,
+            )
+            .join(Profesores, Planificaciones.profesor_id == Profesores.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .join(Periodo, Planificaciones.periodo_id == Periodo.id)
+            .join(Areas, Asignaturas.area_id == Areas.id)
+            .join(
+                Planificacion_Profesor,
+                Planificaciones.id == Planificacion_Profesor.planificacion_id
+            )
+            # Join para obtener la información del profesor revisor
+            .join(
+                areas_profesor,
+                Planificacion_Profesor.profesor_revisor_id == areas_profesor.id,
+                isouter=True
+            )
+            .where(Planificaciones.periodo_id == periodo_id)  # Solo filtramos por periodo_id
+        )
+        
+        # Ejecutar la consulta y obtener los resultados
+        planificaciones = session.exec(query).all()
+
+        # Obtener los IDs de profesores aprobadores y revisores
+        profesor_aprobador_ids = [int(p[8]) for p in planificaciones if p[8] is not None]  # Convertir a entero
+        profesor_revisor_ids = [int(p[9]) for p in planificaciones if p[9] is not None]    # Convertir a entero
+
+        # Consultar nombres de profesores aprobadores
+        aprobadores = {}
+        if profesor_aprobador_ids:
+            query_aprobadores = select(Profesores).where(Profesores.id.in_(profesor_aprobador_ids))
+            aprobadores = {p.id: p.nombre for p in session.exec(query_aprobadores)}
+
+        # Consultar nombres de profesores revisores a través de Areas_Profesor
+        revisores = {}
+        if profesor_revisor_ids:
+            query_revisores = (
+                select(areas_profesor, Profesores.nombre)
+                .join(Profesores, areas_profesor.profesor_id == Profesores.id)
+                .where(areas_profesor.id.in_(profesor_revisor_ids))
+            )
+            revisores = {ap.id: nombre for ap, nombre in session.exec(query_revisores)}
+
+        # Crear una lista de resultados con los campos deseados
+        result = [
+            {
+                # Información básica de la planificación
+                "titulo": planificacion.titulo,
+                "descripcion": planificacion.descripcion,
+                "fecha_subida": planificacion.fecha_subida,
+                
+                # IDs de relaciones
+                "profesor_id": planificacion.profesor_id,
+                "asignaturas_id": planificacion.asignaturas_id,
+                "periodo_id": planificacion.periodo_id,
+
+                "id": id,
+                "id_planificacion": planificacion_id,
+                
+                # Nombres de las relaciones principales
+                "profesor_nombre": profesor_nombre,
+                "periodo_nombre": periodo_nombre,
+                "asignatura_nombre": asignatura_nombre,
+                "curso_nombre": curso_nombre,  # Agregar el nombre del curso
+                "paralelo": paralelo,  # Agregar el paralelo
+                
+                # Información del área
+                "area_id": area_id,
+                "area_nombre": area_nombre,
+                "area_codigo": area_codigo,
+                
+                # Información del profesor aprobador
+                "profesor_aprobador_id": profesor_aprobador_id,
+                "profesor_aprobador_nombre": aprobadores.get(profesor_aprobador_id) if profesor_aprobador_id else None,
+                
+                # Información del profesor revisor
+                "profesor_revisor_id": profesor_revisor_id,
+                "profesor_revisor_nombre": revisores.get(profesor_revisor_id) if profesor_revisor_id else None,
+                
+                # Información adicional de la planificación
+                "fecha_de_actualizacion": fecha_de_actualizacion,
+                "estado": estado,
+                "archivo": archivo,
+            }
+            for (
+                planificacion, id, planificacion_id, profesor_nombre, asignatura_nombre, curso_nombre, paralelo, periodo_nombre,
+                profesor_aprobador_id, profesor_revisor_id,
+                area_id, area_nombre, area_codigo,
+                fecha_de_actualizacion, estado, archivo
+            ) in planificaciones
+        ]
+        
+        return result
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones: {str(e)}"
+        )
+
+
+
+
+
+
+# Mapa de colores para los estados
+status_color_map = {
+    'entregado': '22C55E',  # verde
+    'pendiente': 'EAB308',  # amarillo
+    'atrasado': 'EF4444',   # rojo
+    'aprobado': '3B82F6',   # azul
+    'revisado': 'A855F7'    # morado
+}
+
+@router.get("/download-planificaciones-excel/", response_description="Descargar planificaciones en formato Excel")
+async def download_planificaciones_excel(
+    periodo_id: int,  # ID del periodo
+    session: SessionDep
+) -> Any:
+    try:
+        # Obtener los datos del endpoint existente
+        planificaciones = await get_all_planificaciones_descargar(periodo_id, session)
+
+        # Crear un nuevo libro de Excel en memoria
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Planificaciones"
+
+        # Definir los encabezados de las columnas
+        headers = [
+            "Título", "Descripción", "Fecha de Subida", "Profesor", "Asignatura", "Curso", "Paralelo", "Periodo",
+            "Área", "Profesor Aprobador", "Profesor Revisor", "Fecha de Actualización", "Estado", "Archivo"
+        ]
+        ws.append(headers)
+
+        # Llenar el archivo Excel con los datos
+        for planificacion in planificaciones:
+            row = [
+                planificacion["titulo"],
+                planificacion["descripcion"],
+                planificacion["fecha_subida"].strftime("%Y-%m-%d %H:%M:%S"),
+                planificacion["profesor_nombre"],
+                planificacion["asignatura_nombre"],
+                planificacion["curso_nombre"],
+                planificacion["paralelo"],  # Incluir el paralelo
+                planificacion["periodo_nombre"],
+                planificacion["area_nombre"],
+                planificacion["profesor_aprobador_nombre"],
+                planificacion["profesor_revisor_nombre"],
+                planificacion["fecha_de_actualizacion"].strftime("%Y-%m-%d %H:%M:%S"),
+                planificacion["estado"],
+                planificacion["archivo"]
+            ]
+            ws.append(row)
+
+            # Aplicar el color de fondo solo a la celda de la columna "Estado"
+            estado = planificacion["estado"].lower()
+            if estado in status_color_map:
+                fill = PatternFill(start_color=status_color_map[estado], end_color=status_color_map[estado], fill_type="solid")
+                # La columna "Estado" es la columna 12 (índice 11 en base 0)
+                ws.cell(row=ws.max_row, column=13).fill = fill  # Columna 13 es "Estado"
+
+        # Crear un archivo en memoria
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)  # Mover el puntero al inicio del archivo
+
+        # Nombre del archivo
+        filename = f"planificaciones_periodo_{periodo_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+        # Devolver el archivo como una respuesta de streaming
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al generar el archivo Excel: {str(e)}"
+        )
