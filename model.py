@@ -6,6 +6,7 @@ from datetime import datetime
 
 from fastapi import UploadFile
 from pydantic import EmailStr
+import pytz
 from sqlmodel import Relationship, SQLModel,Field
 
 
@@ -51,10 +52,6 @@ class Total_profesores(SQLModel):
     total: int
 
 
-
-
-
-
 class Periodo(SQLModel, table=True):
     id: int = Field(primary_key=True, default=None)
     fecha_inicio: date
@@ -80,6 +77,7 @@ class Areas(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     nombre: str = Field(..., max_length=100, description="Nombre del área")
     codigo: str = Field(..., max_length=50, unique=True, description="Código único del área")
+    fecha_creacion: Optional[date] = Field(default_factory=date.today, description="Fecha de creación del área")
 
 
 class Asignaturas(SQLModel, table=True):
@@ -126,7 +124,8 @@ class Comentarios(SQLModel, table=True):
     id_profesor: int = Field(..., foreign_key="profesores.id")
     planificacion_profesor_id: int = Field(..., foreign_key="planificacion_profesor.id")
     comentario: str = Field(..., max_length=1000)
-    fecha_enviado: datetime = Field(default_factory=date.today)
+    fecha_enviado: datetime = Field(default_factory=lambda: datetime.now(pytz.timezone('America/Guayaquil')))
+
 
 class Comentarios_Dto(SQLModel):
     profesor_id: int
@@ -140,10 +139,52 @@ class AccessToken(SQLModel, table=True):
 
     profesor_id: int = Field(..., foreign_key="profesores.id")  # Referencia a la tabla 'profesores'
     token: str = Field(..., max_length=43, primary_key=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)  # Fecha de creación
+    created_at: datetime = Field(lambda: datetime.now(pytz.timezone('America/Guayaquil')))  # Fecha de creación
     
     
-     
+class Informe_Profesor(SQLModel, table=True):
+    """
+    Modelo SQLModel para la tabla informe_profesor.
+    """
+    __tablename__ = "informe_profesor"
+
+    id: Optional[int] = Field(default=None, primary_key=True)  # ID generado automáticamente
+    estado: str = Field(..., description="Estado del informe (ej: 'pendiente', 'aprobado', etc.)")
+    periodo_id: Optional[int] = Field(
+        default=None,
+        foreign_key="periodo.id",
+        description="ID del profesor que aprobó el informe"
+    )
+    archivo: Optional[str] = Field(default=None, description="Ruta o nombre del archivo asociado al informe")
+    profesor_aprobador_id: Optional[int] = Field(
+        default=None,
+        foreign_key="profesores.id",
+        description="ID del profesor que aprobó el informe"
+    )
+    profesor_id: int = Field(
+        ...,
+        foreign_key="profesores.id",
+        description="ID del profesor asociado al informe"
+    )
+    fecha_de_actualizacion: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(pytz.timezone('America/Guayaquil')),
+
+        description="Fecha de actualización del informe"
+    )
+class Informe_Profesor_DTO(SQLModel):
+    profesor_id: int
+    periodo_id: int
+    estado: str
+
+    
+class Comentarios_informe(SQLModel, table=True):
+    __tablename__ = "comentarios_informe"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_profesor: int = Field(..., foreign_key="profesores.id")
+    informe_profesor_id: int = Field(..., foreign_key="informe_profesor.id")
+    comentario: str = Field(..., max_length=1000)
+    fecha_enviado: datetime = Field(default_factory=date.today)
+    
 # class UserBase(SQLModel):
 #     is_active: bool = True
 #     is_superuser: bool = False

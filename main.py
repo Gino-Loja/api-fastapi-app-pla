@@ -104,5 +104,5 @@ class FTPMiddleware(BaseHTTPMiddleware):
 
 
 
-#app.add_middleware(FTPMiddleware)
+app.add_middleware(FTPMiddleware)
 app.include_router(api_router)

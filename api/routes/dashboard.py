@@ -112,7 +112,7 @@ async def get_docentes_atrasados(session: SessionDep, periodo_id: int) -> Any:
             .join(Asignaturas, Asignaturas.id == Planificaciones.asignaturas_id)  # Unir Planificaciones con Asignaturas
             .join(Areas, Areas.id == Asignaturas.area_id)  # Unir Asignaturas con Areas
             .where(
-                Planificacion_Profesor.estado == "atrasado",  # Filtrar por estado "atrasado"
+                Planificacion_Profesor.estado == "no_entregado",  # Filtrar por estado "no_entregado"
                 Planificaciones.periodo_id == periodo_id  # Filtrar por periodo_id
             )
         )
@@ -320,7 +320,7 @@ async def get_profesores_con_mas_planificaciones_atrasadas(session: SessionDep, 
             .join(Planificaciones, Profesores.id == Planificaciones.profesor_id)
             .join(Periodo, Planificaciones.periodo_id == Periodo.id)
             .join(Planificacion_Profesor, Planificaciones.id == Planificacion_Profesor.planificacion_id)  # Asegura la relación
-            .where(Planificacion_Profesor.estado == "atrasado", Planificaciones.periodo_id == periodo_id)
+            .where(Planificacion_Profesor.estado == "no_entregado", Planificaciones.periodo_id == periodo_id)
             
             .group_by(Profesores.nombre)
             .order_by(func.count().desc())
@@ -793,14 +793,214 @@ async def get_all_planificaciones_descargar(
 
 
 
+#POR AREAS
+@router.get("/areas-academicas/planificaciones-por-estado-por-area-periodo", response_description="Obtener el total de planificaciones por estado para un área y período específico")
+async def get_planificaciones_por_estado_por_area_periodo(
+    area_id: int,
+    periodo_id: int,
+    session: SessionDep
+):
+    try:
+        # Consulta para obtener el total de planificaciones por estado para un área y período específico
+        statement = (
+            select(
+                Planificacion_Profesor.estado,
+                func.count().label("total_planificaciones")
+            )
+            .join(Planificaciones, Planificacion_Profesor.planificacion_id == Planificaciones.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .where(
+                Asignaturas.area_id == area_id,
+                Planificaciones.periodo_id == periodo_id
+            )
+            .group_by(Planificacion_Profesor.estado)
+        )
+
+        results = session.exec(statement).all()
+
+        # Formatear los resultados como un diccionario {estado: total}
+        return {result.estado: result.total_planificaciones for result in results}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las métricas de planificaciones por estado para el área {area_id} y período {periodo_id}: {str(e)}"
+        )
 
 
+
+@router.get("/areas-academicas/docentes-atrasados-por-area-periodo", response_description="Obtener docentes con planificaciones atrasadas por área y período")
+async def get_docentes_atrasados_por_area_periodo(
+    area_id: int,
+    periodo_id: int,
+    session: SessionDep
+):
+    try:
+        # Consulta para obtener docentes con planificaciones atrasadas por área y período
+        statement = (
+            select(
+                Profesores.id,
+                Profesores.nombre,
+                Planificaciones.titulo,
+                Planificaciones.fecha_subida,
+                Asignaturas.nombre.label("asignatura_nombre"),
+                Asignaturas.curso.label("curso_nombre")
+            )
+            .join(Planificaciones, Planificaciones.profesor_id == Profesores.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .join(Planificacion_Profesor, Planificacion_Profesor.planificacion_id == Planificaciones.id)
+            .where(
+                Asignaturas.area_id == area_id,
+                Planificaciones.periodo_id == periodo_id,
+                Planificacion_Profesor.estado == "no_entregado"
+            )
+        )
+
+        results = session.exec(statement).all()
+
+        # Formatear los resultados
+        docentes_atrasados = [
+            {
+                "id_profesor": result.id,
+                "nombre_profesor": result.nombre,
+                "titulo_planificacion": result.titulo,
+                "fecha_subida": result.fecha_subida,
+                "asignatura_nombre": result.asignatura_nombre,
+                "curso_nombre": result.curso_nombre,
+            }
+            for result in results
+        ]
+
+        return docentes_atrasados
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener docentes con planificaciones atrasadas para el área {area_id} y período {periodo_id}: {str(e)}"
+        )
+        
+@router.get("/areas-academicas/planificaciones-por-estado-asignatura-por-area-periodo", response_description="Obtener planificaciones por estado y asignatura para un área y período específico")
+async def get_planificaciones_por_estado_asignatura_por_area_periodo(
+    area_id: int,
+    periodo_id: int,
+    session: SessionDep
+):
+    try:
+        # Consulta para obtener planificaciones por estado y asignatura para un área y período específico
+        statement = (
+            select(
+                Asignaturas.nombre.label("nombre_asignatura"),  # Nombre de la asignatura
+                Planificaciones.fecha_subida,  # Fecha de subida
+                Planificacion_Profesor.estado,  # Estado de la planificación
+                Asignaturas.curso.label("curso_nombre"),  # Nombre del curso
+                func.count().label("total_planificaciones")  # Total de planificaciones
+            )
+            .join(Planificaciones, Planificacion_Profesor.planificacion_id == Planificaciones.id)
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)
+            .where(
+                Asignaturas.area_id == area_id,  # Filtrar por área
+                Planificaciones.periodo_id == periodo_id  # Filtrar por período
+            )
+            .group_by(
+                Asignaturas.nombre,  # Agrupar por nombre de asignatura
+                Planificaciones.fecha_subida,  # Agrupar por fecha de subida
+                Planificacion_Profesor.estado,  # Agrupar por estado
+                Asignaturas.curso  # Agrupar por curso
+            )
+        )
+
+        results = session.exec(statement).all()
+
+        # Formatear los resultados
+        planificaciones_por_estado_asignatura = [
+            {
+                "nombre_asignatura": result.nombre_asignatura,
+                "fecha_subida": result.fecha_subida.isoformat(),  # Convertir a string en formato ISO
+                "estado": result.estado,
+                "curso_nombre": result.curso_nombre,
+                "total_planificaciones": result.total_planificaciones,
+            }
+            for result in results
+        ]
+
+        return planificaciones_por_estado_asignatura
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las métricas de planificaciones por estado y asignatura para el área {area_id} y período {periodo_id}: {str(e)}"
+        )
+
+@router.get("/areas-academicas/planificaciones-por-area-periodo", response_description="Obtener planificaciones por área y período")
+async def get_planificaciones_por_area_periodo(
+    area_id: int,
+    periodo_id: int,
+    session: SessionDep
+):
+    try:
+        # Alias para las tablas de profesores (asignado y revisor)
+        ProfesorAsignado = aliased(Profesores)
+        ProfesorRevisor = aliased(Profesores)
+
+        # Consulta para obtener las planificaciones filtradas por área y período
+        statement = (
+            select(
+                Planificaciones.titulo,  # Título de la planificación
+                Planificaciones.descripcion,  # Descripción de la planificación
+                Planificaciones.fecha_subida,  # Fecha de subida
+                Planificacion_Profesor.fecha_de_actualizacion,  # Fecha de actualización
+                Planificacion_Profesor.estado,  # Estado de la planificación
+                ProfesorAsignado.nombre.label("profesor_asignado_nombre"),  # Nombre del profesor asignado
+                ProfesorRevisor.nombre.label("profesor_revisor_nombre"),  # Nombre del profesor revisor
+                Asignaturas.nombre.label("nombre_asignatura"),  # Nombre de la asignatura
+                Asignaturas.curso,  # Curso de la asignatura
+                Areas.nombre.label("nombre_area")  # Nombre del área
+            )
+            .join(Planificacion_Profesor, Planificaciones.id == Planificacion_Profesor.planificacion_id)
+            .join(ProfesorAsignado, Planificaciones.profesor_id == ProfesorAsignado.id)  # Profesor asignado
+            .join(Asignaturas, Planificaciones.asignaturas_id == Asignaturas.id)  # Asignatura
+            .join(Areas, Asignaturas.area_id == Areas.id)  # Área
+            .join(areas_profesor, Planificacion_Profesor.profesor_revisor_id == areas_profesor.id, isouter=True)  # Profesor revisor
+            .join(ProfesorRevisor, areas_profesor.profesor_id == ProfesorRevisor.id, isouter=True)  # Nombre del profesor revisor
+            .where(
+                Asignaturas.area_id == area_id,  # Filtrar por área
+                Planificaciones.periodo_id == periodo_id  # Filtrar por período
+            )
+        )
+
+        # Ejecutar la consulta
+        results = session.exec(statement).all()
+
+        # Formatear los resultados
+        planificaciones = [
+            {
+                "titulo": result.titulo,
+                "descripcion": result.descripcion,
+                "fecha_subida": result.fecha_subida,
+                "fecha_actualizacion": result.fecha_de_actualizacion,
+                "estado": result.estado,
+                "profesor_asignado_nombre": result.profesor_asignado_nombre,
+                "profesor_revisor_nombre": result.profesor_revisor_nombre,
+                "nombre_asignatura": result.nombre_asignatura,
+                "curso": result.curso,
+                "nombre_area": result.nombre_area,
+            }
+            for result in results
+        ]
+
+        return planificaciones
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones para el área {area_id} y período {periodo_id}: {str(e)}"
+        )
 
 # Mapa de colores para los estados
 status_color_map = {
     'entregado': '22C55E',  # verde
     'pendiente': 'EAB308',  # amarillo
-    'atrasado': 'EF4444',   # rojo
+    'no_entregado': 'EF4444',   # rojo
     'aprobado': '3B82F6',   # azul
     'revisado': 'A855F7'    # morado
 }

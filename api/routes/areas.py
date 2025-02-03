@@ -71,13 +71,51 @@ async def update_area(area_id: int, area: Areas, session: SessionDep) -> Any:
 
     updated_area_data = jsonable_encoder(area)
     for key, value in updated_area_data.items():
-        setattr(existing_area, key, value)
+        if value is not None:  
+            setattr(existing_area, key, value)
 
     session.add(existing_area)
     session.commit()
     session.refresh(existing_area)
     return existing_area
 
+@router.delete("/{area_id}", response_description="Eliminar un área")
+async def delete_area(area_id: int, session: SessionDep) -> Any:
+    try:
+        statement = select(Areas).where(Areas.id == area_id)
+        existing_area = session.exec(statement).one_or_none()
+
+        if not existing_area:
+            raise HTTPException(status_code=404, detail="Área no encontrada")
+
+        session.delete(existing_area)
+        session.commit()
+
+        return {
+            "message": "Área eliminada exitosamente",
+            "deleted_id": area_id
+        }
+
+    except IntegrityError as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede eliminar el área porque tiene registros relacionados"
+        ) from e
+
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al eliminar el área de la base de datos"
+        ) from e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Error en la solicitud de eliminación"
+        ) from e
+        
 # Eliminar un área
 @router.delete("/delete/{area_id}", response_description="Eliminar un área")
 async def delete_area(area_id: int, session: SessionDep) -> Any:

@@ -250,7 +250,7 @@ def check_and_send_reminders() :
 
 def check_and_update_states():
     """
-    Verifica las planificaciones con fecha_subida pasada y actualiza su estado a 'atrasado'
+    Verifica las planificaciones con fecha_subida pasada y actualiza su estado a 'no_entregado'
     solo si están en estado 'pendiente'.
     """
     try:
@@ -272,8 +272,8 @@ def check_and_update_states():
 
                 # Verificar si la planificación tiene fecha_subida pasada
                 if planificacion_detalle and planificacion_detalle.fecha_subida < now:
-                    # Cambiar el estado a 'atrasado'
-                    planificacion.estado = "atrasado"
+                    # Cambiar el estado a 'no_entregado'
+                    planificacion.estado = "no_entregado"
                     session.add(planificacion)
 
                     # Notificar al profesor

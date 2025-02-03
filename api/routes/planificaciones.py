@@ -470,12 +470,16 @@ BASE_UPLOAD_DIR = "uploads"
 async def subir_pdf(
     db: SessionDep,
     request: Request,
+    background_tasks: BackgroundTasks,
+
     pdf: UploadFile = File(...),
     id_planificacion: int = Form(...),
     area_codigo: str = Form(...),
     id_usuario: int = Form(...),
     nombre_asignatura: str = Form(...),
-    periodo_nombre: str = Form(...),    
+    periodo_nombre: str = Form(...),   
+    curso_nombre: str = Form(...),
+    id_profesor_asignado: int = Form(...),
 ):
     # Validar conexión al servidor FTP
     ftp_server: Optional[ftplib.FTP] = request.app.ftp
@@ -495,8 +499,13 @@ async def subir_pdf(
             areas_profesor.id == planificacion_profesor.profesor_revisor_id
         ))
         
-        planificacion_profesor_id: Optional[areas_profesor] = profesor_revisor.first()
-
+        planificacion_profesor_revisor_id: Optional[areas_profesor] = profesor_revisor.first()
+        
+        
+        profesor_asignado = db.exec(select(Profesores).where(
+            Profesores.id == id_profesor_asignado
+        )).first()
+        
         
         
 
@@ -506,21 +515,73 @@ async def subir_pdf(
         # Lógica para determinar el estado
         
         
-        
-        if planificacion_profesor_id == id_usuario:
+        if planificacion_profesor_revisor_id.profesor_id == id_usuario:
             estado = "revisado"
+            email_data = render_email_template_info(
+                template_name="info_docente.html",
+                email_to=profesor_asignado.email,
+                message=f"Se ha Actualizado el estado de la planificación: [{estado.upper()}] de la asignatura {nombre_asignatura} del curso {curso_nombre}. Consultar estado con el identificador {id_planificacion}.",
+                subject="Actualización de planificación de asignaturas"
+            )
+
+            background_tasks.add_task(
+                send_email,
+                email_to=profesor_asignado.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
+            
         elif planificacion_profesor.profesor_aprobador_id == id_usuario:
             estado = "aprobado"
+            email_data = render_email_template_info(
+                template_name="info_docente.html",
+                email_to=profesor_asignado.email,
+                message=f"Se ha Actualizado el estado de la planificación a: [{estado.upper()}]de la asignatura {nombre_asignatura} del curso{curso_nombre}. Consultar estado con el identificador {id_planificacion}.",
+                subject="Actualización de planificación de asignaturas"
+            )
+
+            background_tasks.add_task(
+                send_email,
+                email_to=profesor_asignado.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
             
         if not planificacion_profesor.archivo:
             print("archivo no existe pero fue entregado")
             
             estado = "entregado"
+            
+            def enviar_email_revisor():
+                profesor_aprobador = db.exec(select(Profesores).where(
+                Profesores.id == planificacion_profesor.profesor_aprobador_id
+                )).first()
+                email_data = render_email_template_info(
+                template_name="info_docente.html",
+                email_to=profesor_aprobador.email,
+                message=f"Se ha realizado la entrega de la planificación en la asignatura {nombre_asignatura} del curso {curso_nombre}. Consultar estado con el identificador {id_planificacion}.",
+                subject="Actualización de planificación de asignaturas"
+                
+                )
+                send_email(
+                    email_to=profesor_aprobador.email,
+                    subject=email_data.subject,
+                    html_content=email_data.html_content,
+                )
+                
+            background_tasks.add_task(enviar_email_revisor)
+            
+          
+            
+
+            
+            
+            
         
 
         # Crear la ruta del archivo
-        ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{nombre_asignatura}"
-        nombre_archivo = f"{id_planificacion}_{nombre_asignatura}_{estado}.pdf"
+        ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{curso_nombre}/{nombre_asignatura}"
+        nombre_archivo = f"{id_planificacion}_{id_profesor_asignado}_{nombre_asignatura}_{estado}.pdf"
         ruta_completa = f"{ruta_carpeta}/{nombre_archivo}"
 
         # Verificar y crear directorios en el servidor FTP
