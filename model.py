@@ -177,14 +177,18 @@ class Informe_Profesor_DTO(SQLModel):
     estado: str
 
     
-class Comentarios_informe(SQLModel, table=True):
+class Comentarios_Informe(SQLModel, table=True):
     __tablename__ = "comentarios_informe"
     id: Optional[int] = Field(default=None, primary_key=True)
     id_profesor: int = Field(..., foreign_key="profesores.id")
     informe_profesor_id: int = Field(..., foreign_key="informe_profesor.id")
     comentario: str = Field(..., max_length=1000)
     fecha_enviado: datetime = Field(default_factory=date.today)
-    
+
+class Comentarios_Informe_Dto(SQLModel):
+    profesor_id: int
+    informe_profesor_id: int
+    comentario: str
 # class UserBase(SQLModel):
 #     is_active: bool = True
 #     is_superuser: bool = False

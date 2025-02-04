@@ -153,7 +153,8 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
             ftp_server: Optional[ftplib.FTP] = request.app.ftp
             if ftp_server:
                 try:
-                    ftp_server.delete(planificacion_profesor.archivo)
+                    if planificacion_profesor.archivo is not None:
+                        ftp_server.delete(planificacion_profesor.archivo)
                 except Exception as e:
                     print(f"Error al eliminar archivo del FTP: {e}")
             # Eliminar archivo de la base de datos
@@ -599,7 +600,7 @@ async def subir_pdf(
 
         # Verificar si el archivo ya existe
         archivos_en_directorio = ftp_server.nlst()
-        if planificacion_profesor.archivo in archivos_en_directorio:
+        if os.path.basename(planificacion_profesor.archivo) in archivos_en_directorio:
             # Eliminar el archivo existente
             ftp_server.delete(planificacion_profesor.archivo)
 
@@ -1014,9 +1015,7 @@ async def delete_planificacion(planificacion_id: int, session: SessionDep, reque
             if ftp_server:
                 
                 if planificacion_profesor.archivo is not None:
-                    
-                    print(planificacion_profesor.archivo)
-                    
+                                        
                     try:
                         ftp_server.delete(planificacion_profesor.archivo)
                     except Exception as e:

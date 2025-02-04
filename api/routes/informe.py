@@ -13,7 +13,7 @@ import pytz
 from sqlalchemy import String, alias, cast, extract
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import select , func
-from model import Informe_Profesor_DTO, Periodo,  Profesores, Informe_Profesor
+from model import Comentarios_Informe, Comentarios_Informe_Dto, Informe_Profesor_DTO, Periodo,  Profesores, Informe_Profesor
 from api.deps import SessionDep, sender_email
 import tempfile
 import io
@@ -160,26 +160,41 @@ async def update_informe(
             estado = "entregado"
 
         # Si se proporciona un nuevo archivo, actualizarlo en el servidor FTP
-        if pdf:
+       
             # Eliminar el archivo anterior si existe
-            if informe.archivo:
-                try:
-                    ftp_server.delete(informe.archivo)
-                except Exception as e:
-                    print(f"Error al eliminar archivo anterior: {e}")
+        ruta_carpeta = f"uploads/informe/{periodo.nombre}/"
+        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        ruta_completa = f"{ruta_carpeta}{nombre_archivo}"
+        
+        partes = ruta_carpeta.split("/")
+        for i in range(1, len(partes) + 1):
+            subpath = "/".join(partes[:i])
+            try:
+                ftp_server.mkd(subpath)
+            except ftplib.error_perm:
+                # Ignorar error si el directorio ya existe
+                pass
 
-            # Crear la ruta del nuevo archivo
-            ruta_carpeta = f"uploads/informe/{periodo.nombre}/"
-            nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            ruta_completa = f"{ruta_carpeta}{nombre_archivo}"
+        
+        ftp_server.cwd(ruta_carpeta)
+        # archivos_en_directorio = ftp_server.nlst()
+        # print(archivos_en_directorio, informe.archivo, informe.archivo in archivos_en_directorio)
+        
+        ftp_server.delete(informe.archivo)
 
-            # Subir el nuevo archivo al servidor FTP
-            contenido = await pdf.read()
-            ftp_server.storbinary(f"STOR {nombre_archivo}", io.BytesIO(contenido))
-            ftp_server.cwd('/')
+
+        # Crear la ruta del nuevo archivo
+        
+
+        
+
+        # Subir el nuevo archivo al servidor FTP
+        contenido = await pdf.read()
+        ftp_server.storbinary(f"STOR {nombre_archivo}", io.BytesIO(contenido))
+        ftp_server.cwd('/')
 
             # Actualizar la ruta del archivo en el informe
-            informe.archivo = ruta_completa
+        informe.archivo = ruta_completa
         informe.estado = estado
 
         # Actualizar la fecha de actualización
@@ -281,6 +296,7 @@ async def download_informe(
             raise HTTPException(status_code=404, detail="Archivo no encontrado.")
 
         # Obtener el nombre del archivo
+        
         directorio, nombre_archivo = os.path.split(informe.archivo)
 
         # Cambiar al directorio correspondiente en el servidor FTP
@@ -377,3 +393,137 @@ async def listar_informes_por_periodo(
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=f"Error al listar los informes: {str(e)}")
+    
+    
+
+@router.post("/comentar-informe/", response_description="Comentar una planificación", status_code=status.HTTP_201_CREATED)
+async def comentar_planificacion(
+    comentario: Comentarios_Informe_Dto,
+    session: SessionDep 
+):
+    try:
+        # Consulta la planificación del profesor
+        query_planificacion_profesor = select(Informe_Profesor).where(
+            Informe_Profesor.id == comentario.informe_profesor_id
+        )
+        result = session.exec(query_planificacion_profesor)
+        informe_profesor = result.first()  # Devuelve el primer resultado
+
+        if not informe_profesor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Planificación no encontrada"
+            )
+
+        # Consulta al profesor
+        profesor_query = select(Profesores).where(Profesores.id == comentario.profesor_id)
+        fechtprofesor = session.exec(profesor_query).one_or_none()
+
+        if not fechtprofesor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profesor no encontrado"
+            )
+
+        # Crear el objeto de comentario
+        comentario_data = Comentarios_Informe(
+            id_profesor=comentario.profesor_id,
+            informe_profesor_id=comentario.informe_profesor_id,
+            comentario=comentario.comentario,
+            fecha_enviado=datetime.now(pytz.timezone('America/Guayaquil'))
+        )
+
+        # Guardar el comentario en la base de datos
+        session.add(comentario_data)
+        session.commit()
+        session.refresh(comentario_data)
+
+        # Enviar el correo electrónico
+        try:
+            sender_email(
+                fechtprofesor.email,  # Asegúrate de que esta propiedad exista
+                f"Comentario de Informe",
+                comentario.comentario  # El comentario como cuerpo del correo
+            )
+        except Exception as e:
+            print(f"Error al enviar el email: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Fallo al enviar el email"
+            )
+
+        return comentario_data
+        
+    except Exception as e:
+        print(f"Error en la API: {e}")
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al guardar el comentario en la base de datos"
+        ) from e
+
+
+@router.get("/comentarios/", response_description="Listar todos los comentarios de planificaciones", response_model=List[Any])
+async def get_all_comentarios_planificacion(
+    informe_profesor_id: int,
+    session: SessionDep
+):
+
+    try:
+        # Realizamos el join entre todas las tablas necesarias
+        query = (
+            select(Comentarios_Informe)
+            .where(Comentarios_Informe.informe_profesor_id == informe_profesor_id)
+            
+            )
+        
+        # Ejecutar la consulta y obtener los resultados
+        comentarios = session.exec(query).all()
+        
+
+        # Obtener los IDs de profesores 
+        profesor_ids = [p.id_profesor for p in comentarios if p.id_profesor is not None]
+        
+        # Consultar nombres de profesores
+        nombres_profesores = select(Profesores).where(Profesores.id.in_(profesor_ids))
+        nombres_profesores = session.exec(nombres_profesores).all()
+        
+        nombres_profesores = {p.id: p.nombre for p in nombres_profesores}
+        
+        # Crear una lista de resultados con los campos deseados
+        result = [
+            {
+                "id": comentario.id,
+                "id_profesor": comentario.id_profesor,
+                "informe_profesor_id": comentario.informe_profesor_id,
+                "comentario": comentario.comentario,
+                "fecha_enviado": comentario.fecha_enviado,
+                "nombre_profesor": nombres_profesores.get(comentario.id_profesor),
+            }
+            for comentario in comentarios
+        ]
+        
+        return result
+        
+        
+        # Consultar nombres de profesores aprobadores
+        # Crear una lista de resultados con los campos deseados con los nombres de los profesores
+        
+        
+        # result = [
+        #     {
+        #         "id": comentario.id,
+        #         "id_profesor": comentario.id_profesor,
+        #         "planificacion_profesor_id": comentario.planificacion_profesor_id,
+        #         "comentario": comentario.comentario,
+        #         "fecha_enviado": comentario.fecha_enviado,
+        #     }
+        #     for comentario in comentarios
+        # ]
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener las planificaciones: {str(e)}"
+        )   
+             
