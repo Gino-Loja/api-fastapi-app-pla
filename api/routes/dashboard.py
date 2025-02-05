@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, Request, Response, HTT
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List, Optional
 from fastapi.responses import FileResponse
+import pytz
 from sqlalchemy import String, alias, cast, extract, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from zoneinfo import ZoneInfo
@@ -1059,7 +1060,7 @@ async def download_planificaciones_excel(
         excel_file.seek(0)  # Mover el puntero al inicio del archivo
 
         # Nombre del archivo
-        filename = f"planificaciones_periodo_{periodo_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"planificaciones_periodo_{periodo_id}_{datetime.now(pytz.timezone('America/Guayaquil')).strftime('%Y%m%d_%H%M%S')}.xlsx"
 
         # Devolver el archivo como una respuesta de streaming
         return StreamingResponse(

@@ -58,7 +58,7 @@ async def create_informe(
         
         
         ruta_carpeta = f"uploads/informe/{periodo.nombre}/"
-        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now(pytz.timezone('America/Guayaquil')).strftime('%Y%m%d_%H%M%S')}.pdf"
         ruta_completa = f"{ruta_carpeta}{nombre_archivo}"
 
         # Crear directorios en el servidor FTP si no existen
@@ -163,7 +163,7 @@ async def update_informe(
        
             # Eliminar el archivo anterior si existe
         ruta_carpeta = f"uploads/informe/{periodo.nombre}/"
-        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now(pytz.timezone('America/Guayaquil')).strftime('%Y%m%d_%H%M%S')}.pdf"
         ruta_completa = f"{ruta_carpeta}{nombre_archivo}"
         
         partes = ruta_carpeta.split("/")
