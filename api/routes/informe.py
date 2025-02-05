@@ -180,7 +180,9 @@ async def update_informe(
         # archivos_en_directorio = ftp_server.nlst()
         # print(archivos_en_directorio, informe.archivo, informe.archivo in archivos_en_directorio)
         
-        ftp_server.delete(informe.archivo)
+        if informe.archivo:
+                # Eliminar el archivo existente
+            ftp_server.delete(informe.archivo)
 
 
         # Crear la ruta del nuevo archivo

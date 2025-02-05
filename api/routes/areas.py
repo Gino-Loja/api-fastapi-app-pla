@@ -290,3 +290,40 @@ async def update_area_profesor(area_id: int, data: areas_profesor, session: Sess
             detail=f"Error al actualizar el registro en la base de datos: {str(e)}"
         )     
 
+@router.get("/profesor/{profesor_id}/areas", response_description="Obtener áreas de un profesor", response_model=List[Any])
+async def get_areas_profesor(profesor_id: int, session: SessionDep) -> Any:
+    try:
+        # Realizamos un join entre areas_profesor, Profesores y Areas
+        statement = select(
+            Areas.id,
+            Areas.nombre,
+            Areas.codigo
+        ).join(
+            areas_profesor, Areas.id == areas_profesor.area_id  # Unimos Areas con areas_profesor
+        ).join(
+            Profesores, areas_profesor.profesor_id == Profesores.id  # Unimos areas_profesor con Profesores
+        ).where(
+            Profesores.id == profesor_id  # Filtramos por el ID del profesor
+        )
+
+        result = session.exec(statement).all()
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No se encontraron áreas asignadas a este profesor."
+            )
+
+        # Formatear la respuesta para retornar los datos de las áreas
+        return [{
+            "id": id,
+            "nombre": nombre,
+            "codigo": codigo
+        } for id, nombre, codigo in result]
+
+    except SQLAlchemyError as e:
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al realizar la búsqueda en la base de datos."
+        ) from e

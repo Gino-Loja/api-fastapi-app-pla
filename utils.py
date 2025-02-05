@@ -9,6 +9,7 @@ import emails  # type: ignore
 import jwt
 from jinja2 import Template
 from jwt.exceptions import InvalidTokenError
+import pytz
 from sqlmodel import select
 
 from core.config import settings
@@ -167,7 +168,7 @@ def render_email_template_info(subject:str, template_name: str, email_to: str, m
 
 def generate_password_reset_token(email: str) -> str:
     delta = timedelta(hours=settings.EMAIL_RESET_TOKEN_EXPIRE_HOURS)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(pytz.timezone('America/Guayaquil'))
     expires = now + delta
     exp = expires.timestamp()
     encoded_jwt = jwt.encode(

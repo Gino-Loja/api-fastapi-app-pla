@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic import BaseModel
+import pytz
 from sqlmodel import select
 from pytz import timezone as tz
 import jwt
@@ -103,7 +104,7 @@ def authenticate_user(session: SessionDep, username: str, password: str) -> Opti
 def create_token_payload(data: dict, expires_delta: Optional[timedelta] = None) -> dict:
     """Create JWT payload with expiration."""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
+    expire = datetime.now(pytz.timezone('America/Guayaquil')) + (
         expires_delta if expires_delta else timedelta(minutes=15)
     )
     to_encode.update({"exp": expire})

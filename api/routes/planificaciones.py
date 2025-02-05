@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Form, Request, Response, HTTPException, Upl
 from fastapi.encoders import jsonable_encoder
 from typing import Any, List, Optional
 from fastapi.responses import FileResponse
+import pytz
 from sqlalchemy import String, alias, cast, extract
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import select , func
@@ -573,13 +574,7 @@ async def subir_pdf(
             background_tasks.add_task(enviar_email_revisor)
             
           
-            
-
-            
-            
-            
         
-
         # Crear la ruta del archivo
         ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{curso_nombre}/{nombre_asignatura}"
         nombre_archivo = f"{id_planificacion}_{id_profesor_asignado}_{nombre_asignatura}_{estado}.pdf"
@@ -600,9 +595,12 @@ async def subir_pdf(
 
         # Verificar si el archivo ya existe
         archivos_en_directorio = ftp_server.nlst()
-        if os.path.basename(planificacion_profesor.archivo) in archivos_en_directorio:
-            # Eliminar el archivo existente
-            ftp_server.delete(planificacion_profesor.archivo)
+        
+        if planificacion_profesor.archivo:
+            directorio, filename = os.path.split(planificacion_profesor.archivo)
+            if filename in archivos_en_directorio:
+                # Eliminar el archivo existente
+                ftp_server.delete(planificacion_profesor.archivo)
 
         # Subir el nuevo archivo
         contenido = await pdf.read()
@@ -890,7 +888,7 @@ async def comentar_planificacion(
             id_profesor=comentario.profesor_id,
             planificacion_profesor_id=comentario.planificacion_profesor_id,
             comentario=comentario.comentario,
-            fecha_enviado=datetime.now()
+            fecha_enviado=datetime.now(pytz.timezone('America/Guayaquil'))
         )
 
         # Guardar el comentario en la base de datos
