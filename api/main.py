@@ -6,7 +6,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 api_router.include_router(profesores.router, prefix="/profesor", tags=["profesor"], dependencies=[Depends(auth.get_current_active_user)])
-api_router.include_router(areas.router, prefix="/area", tags=["area"],  )
+api_router.include_router(areas.router, prefix="/area", tags=["area"], dependencies=[Depends(auth.get_current_active_user)] )
 
 api_router.include_router(asignaturas.router, prefix="/asignatura", tags=["asignatura"],  dependencies=[Depends(auth.get_current_active_user)])
 api_router.include_router(periodos.router, prefix="/periodo", tags=["periodo"],  dependencies=[Depends(auth.get_current_active_user)])
