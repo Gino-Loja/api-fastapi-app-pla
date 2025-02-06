@@ -534,6 +534,8 @@ async def subir_pdf(
             raise HTTPException(status_code=404, detail="Planificación no encontrada")
 
         # Lógica para determinar el estado
+         
+        estado = "entregado"
         
         
         if planificacion_profesor_revisor_id.profesor_id == id_usuario:
@@ -567,8 +569,7 @@ async def subir_pdf(
                 subject=email_data.subject,
                 html_content=email_data.html_content,
             )
-        else:
-            estado = "entregado"
+       
         
             
             
