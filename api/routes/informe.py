@@ -18,7 +18,7 @@ from api.deps import SessionDep, sender_email
 import tempfile
 import io
 from typing import Optional
-from utils import formatear_fecha, render_email_template_info, send_email
+from utils import formatear_fecha, normalize_filename, render_email_template_info, send_email
 
 router = APIRouter()
 
@@ -162,8 +162,8 @@ async def update_informe(
         # Si se proporciona un nuevo archivo, actualizarlo en el servidor FTP
        
             # Eliminar el archivo anterior si existe
-        ruta_carpeta = f"uploads/informe/{periodo.nombre}/"
-        nombre_archivo = f"{profesor.nombre}_{estado}_{datetime.now(pytz.timezone('America/Guayaquil')).strftime('%Y%m%d_%H%M%S')}.pdf"
+        ruta_carpeta = f"uploads/informe/{normalize_filename(periodo.nombre)}/"
+        nombre_archivo = f"{normalize_filename(profesor.nombre)}_{estado}_{datetime.now(pytz.timezone('America/Guayaquil')).strftime('%Y%m%d_%H%M%S')}.pdf"
         ruta_completa = f"{ruta_carpeta}{nombre_archivo}"
         
         partes = ruta_carpeta.split("/")

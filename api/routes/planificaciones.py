@@ -3,8 +3,7 @@ from datetime import datetime
 import ftplib
 import io
 import os
-import unicodedata
-import re
+
 
 from fastapi import APIRouter, File, Form, Request, Response, HTTPException, UploadFile, status,BackgroundTasks
 from fastapi.encoders import jsonable_encoder
@@ -19,7 +18,7 @@ from api.deps import SessionDep, sender_email
 import tempfile
 import io
 from typing import Optional
-from utils import formatear_fecha, render_email_template_info, send_email
+from utils import formatear_fecha, normalize_filename, render_email_template_info, send_email
 
 router = APIRouter()
 
@@ -468,19 +467,7 @@ async def get_planificaciones_by_revisor(
 
 BASE_UPLOAD_DIR = "uploads"
 
-def normalize_filename(filename: str) -> str:
-    # Normalizamos el texto separando caracteres base y sus diacríticos.
-    normalized = unicodedata.normalize('NFD', filename)
-    # Eliminamos los caracteres diacríticos (acentos, tildes, etc).
-    normalized = normalized.encode('ascii', 'ignore').decode('utf-8')
-    
-    # Reemplazamos los espacios por guiones bajos.
-    normalized = normalized.replace(' ', '_')
-    
-    # Opcionalmente, eliminamos cualquier carácter que no sea alfanumérico, punto, guión o guión bajo.
-    normalized = re.sub(r'[^a-zA-Z0-9_.-]', '', normalized)
-    
-    return normalized
+
 
 
 @router.put("/subir-pdf/")

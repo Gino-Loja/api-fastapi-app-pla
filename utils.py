@@ -22,7 +22,8 @@ from datetime import datetime, timedelta
 from api.deps import SessionDep, get_db
 from pytz import timezone as tz
 from sqlmodel import Session, select
-
+import unicodedata
+import re
 @dataclass
 class EmailData:
     html_content: str
@@ -306,3 +307,18 @@ def check_and_update_states():
 
     except Exception as e:
         print(f"Error al actualizar estados de planificaciones: {e}")
+        
+
+def normalize_filename(filename: str) -> str:
+    # Normalizamos el texto separando caracteres base y sus diacríticos.
+    normalized = unicodedata.normalize('NFD', filename)
+    # Eliminamos los caracteres diacríticos (acentos, tildes, etc).
+    normalized = normalized.encode('ascii', 'ignore').decode('utf-8')
+    
+    # Reemplazamos los espacios por guiones bajos.
+    normalized = normalized.replace(' ', '_')
+    
+    # Opcionalmente, eliminamos cualquier carácter que no sea alfanumérico, punto, guión o guión bajo.
+    normalized = re.sub(r'[^a-zA-Z0-9_.-]', '', normalized)
+    
+    return normalized
