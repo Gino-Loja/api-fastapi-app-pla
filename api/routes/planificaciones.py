@@ -157,6 +157,7 @@ async def update_planificacion(planificacion_id: int, updated_data: Planificacio
             if ftp_server:
                 try:
                     if planificacion_profesor.archivo is not None:
+                        ftp_server.cwd('/')
                         ftp_server.delete(planificacion_profesor.archivo)
                 except Exception as e:
                     print(f"Error al eliminar archivo del FTP: {e}")
