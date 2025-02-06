@@ -535,7 +535,6 @@ async def subir_pdf(
 
         # Lógica para determinar el estado
          
-        estado = "entregado"
         
         
         if planificacion_profesor_revisor_id.profesor_id == id_usuario:
@@ -569,8 +568,10 @@ async def subir_pdf(
                 subject=email_data.subject,
                 html_content=email_data.html_content,
             )
+        else:
+            estado = "entregado"
+
             
-        print(planificacion_profesor.profesor_aprobador_id == id_usuario)
        
         
             
