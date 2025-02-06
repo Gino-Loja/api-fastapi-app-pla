@@ -569,6 +569,8 @@ async def subir_pdf(
                 subject=email_data.subject,
                 html_content=email_data.html_content,
             )
+            
+        print(planificacion_profesor.profesor_aprobador_id == id_usuario)
        
         
             
