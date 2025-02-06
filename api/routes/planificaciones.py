@@ -615,14 +615,19 @@ async def subir_pdf(
                 pass
 
         # Cambiar al directorio correspondiente
-        ftp_server.cwd(ruta_carpeta)
 
         # Verificar si el archivo ya existe
         archivos_en_directorio = ftp_server.nlst()
         
         if planificacion_profesor.archivo:
-            directorio, filename = os.path.split(planificacion_profesor.archivo)
-            ftp_server.delete(planificacion_profesor.archivo)
+            try:
+                ftp_server.cwd('/')
+                ftp_server.delete(planificacion_profesor.archivo)
+
+            except Exception as e:
+                print(f"Error regresando al directorio inicial: {e}")
+            
+        ftp_server.cwd(ruta_carpeta)
 
         # Subir el nuevo archivo
         contenido = await pdf.read()
