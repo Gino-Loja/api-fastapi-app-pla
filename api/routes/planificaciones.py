@@ -3,6 +3,8 @@ from datetime import datetime
 import ftplib
 import io
 import os
+import unicodedata
+import re
 
 from fastapi import APIRouter, File, Form, Request, Response, HTTPException, UploadFile, status,BackgroundTasks
 from fastapi.encoders import jsonable_encoder
@@ -465,6 +467,21 @@ async def get_planificaciones_by_revisor(
 
 BASE_UPLOAD_DIR = "uploads"
 
+def normalize_filename(filename: str) -> str:
+    # Normalizamos el texto separando caracteres base y sus diacríticos.
+    normalized = unicodedata.normalize('NFD', filename)
+    # Eliminamos los caracteres diacríticos (acentos, tildes, etc).
+    normalized = normalized.encode('ascii', 'ignore').decode('utf-8')
+    
+    # Reemplazamos los espacios por guiones bajos.
+    normalized = normalized.replace(' ', '_')
+    
+    # Opcionalmente, eliminamos cualquier carácter que no sea alfanumérico, punto, guión o guión bajo.
+    normalized = re.sub(r'[^a-zA-Z0-9_.-]', '', normalized)
+    
+    return normalized
+
+
 @router.put("/subir-pdf/")
 async def subir_pdf(
     db: SessionDep,
@@ -583,8 +600,8 @@ async def subir_pdf(
           
         
         # Crear la ruta del archivo
-        ruta_carpeta = f"uploads/{periodo_nombre}/{area_codigo}/{curso_nombre}/{nombre_asignatura}"
-        nombre_archivo = f"{id_planificacion}_{id_profesor_asignado}_{nombre_asignatura}_{estado}.pdf"
+        ruta_carpeta = f"uploads/{normalize_filename(periodo_nombre)}/{area_codigo}/{normalize_filename(curso_nombre)}/{normalize_filename(nombre_asignatura)}"
+        nombre_archivo = f"{id_planificacion}_{id_profesor_asignado}_{estado}.pdf"
         ruta_completa = f"{ruta_carpeta}/{nombre_archivo}"
 
         # Verificar y crear directorios en el servidor FTP
