@@ -548,6 +548,10 @@ async def subir_pdf(
                 subject=email_data.subject,
                 html_content=email_data.html_content,
             )
+        else:
+            estado = "entregado"
+        
+            
             
         if not planificacion_profesor.archivo:
             print("archivo no existe pero fue entregado")
@@ -572,6 +576,8 @@ async def subir_pdf(
                 )
                 
             background_tasks.add_task(enviar_email_revisor)
+            
+       
             
           
         
