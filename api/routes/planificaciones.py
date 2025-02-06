@@ -463,9 +463,6 @@ async def get_planificaciones_by_revisor(
         )
 
 
-
-
-
 BASE_UPLOAD_DIR = "uploads"
 
 @router.put("/subir-pdf/")
@@ -488,6 +485,10 @@ async def subir_pdf(
     if not ftp_server:
         raise HTTPException(status_code=500, detail="No hay conexión con el servidor FTP.")
 
+    try:
+        ftp_server.cwd('/')
+    except Exception as e:
+        print(f"Error regresando al directorio inicial: {e}")
     try:
         # Verificar si ya existe un registro de planificación_profesor
         query_planificacion_profesor = select(Planificacion_Profesor).where(
@@ -670,6 +671,10 @@ async def descargar_planificacion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="No hay conexión con el servidor FTP."
         )
+    try:
+        ftp_server.cwd('/')
+    except Exception as e:
+        print(f"Error regresando al directorio inicial: {e}")
     
     try:
         # Store the initial directory
