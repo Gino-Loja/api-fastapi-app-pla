@@ -622,9 +622,7 @@ async def subir_pdf(
         
         if planificacion_profesor.archivo:
             directorio, filename = os.path.split(planificacion_profesor.archivo)
-            if filename in archivos_en_directorio:
-                # Eliminar el archivo existente
-                ftp_server.delete(planificacion_profesor.archivo)
+            ftp_server.delete(planificacion_profesor.archivo)
 
         # Subir el nuevo archivo
         contenido = await pdf.read()
