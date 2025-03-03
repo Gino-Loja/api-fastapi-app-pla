@@ -4,7 +4,7 @@ API para la gestión y planificación de docentes en la Unidad Educativa UEFO de
 
 ## Características principales
 
-- Gestión de horarios de docentes
+- Gestión de docentes
 - Asignación de materias y cursos
 - Control de asistencia
 - Reportes de planificación académica
@@ -14,7 +14,10 @@ API para la gestión y planificación de docentes en la Unidad Educativa UEFO de
 
 - Python 3.8 o superior
 - FastAPI
-- Base de datos PostgreSQL (opcional: configurar en el archivo .env)
+- FTP server
+- SMTP server
+- Base de datos PostgreSQL 
+- configurar en el archivo .env
 
 ## Instalación
 
