@@ -1,29 +1,42 @@
-# Reciclaje_ai
-Hola chicos en este repositorio encontraran la programación y los comandos completos para ejecutar su propio sistema de detección de basura y reciclaje.
+# API-Planificación-de-Docentes
 
-### Conceptos introductorios:
-- Para iniciar recomendamos ver algunos conceptos introductorios con el fin de entender un poco mejor todo el funcionamiento, por eso te dejamos la explicacion en este [video.](https://youtu.be/PSFw_ipK3ug)
-- El modelo lo puedes encontrar [aqui.](https://huggingface.co/AprendeIngenia/recyclingAI)
+API para la gestión y planificación de docentes en la Unidad Educativa UEFO del Coca. Esta API proporciona todos los endpoints necesarios para administrar la planificación académica de forma eficiente.
 
-### Reciclaje AI:
-Este repo contiene un sistema de detección de objetos especializado en identificar diferentes categorías de residuos y materiales reciclables. Ha sido entrenado con una variedad de imágenes de residuos comunes, como papel, cartón, vidrio, metal y plástico, para proporcionar predicciones precisas y confiables.
+## Características principales
 
-El modelo puede fallar en situaciones de iluminación adversa, presencia de ruido en las imágenes o variaciones en la perspectiva de los objetos. Además, el modelo puede no reconocer correctamente residuos raramente observados o no incluidos en el conjunto de entrenamiento.
+- Gestión de horarios de docentes
+- Asignación de materias y cursos
+- Control de asistencia
+- Reportes de planificación académica
+- Integración con el sistema académico existente
 
- ![maxresdefault](https://github.com/AprendeIngenia/reciclaje_ai/assets/85022752/2bcc6730-a8b8-4bc3-bb4a-ec190625ce0e)
+## Requisitos previos
 
+- Python 3.8 o superior
+- FastAPI
+- Base de datos PostgreSQL (opcional: configurar en el archivo .env)
 
-### Este proyecto es ideal para:
+## Instalación
 
-- Personas interesadas en Python e IA
-- Estudiantes que buscan aprender sobre Python e IA.
-- Educadores que buscan herramientas innovadoras en reciclaje.
-- Personas que buscan desarrollar aplicaciones de control de reciclaje.
+1. Clonar el repositorio:
+```bash
+git clone https://github.com/Gino-Loja/api-fastapi-app-pla.git
+cd api-fastapi-app-pla
+```
 
-# Recuerda que puedes contribuir a que siga desarrollando:
-Simplemente suscribiendote a mi canal de YouTube:
-- [Canal YouTube](https://www.youtube.com/channel/UCzwHEOCbsZLjfELperJ6VeQ/videos)
+2. Instalar las dependencias:
+```bash
+pip install -r requirements.txt
+```
 
-### Siguiendome en mis redes sociales: 
-- [Instagram](https://www.instagram.com/santiagsanchezr/)
-- [Twitter](https://twitter.com/SantiagSanchezR)
+3. Ejecutar el servidor de la API:
+```bash
+uvicorn main:app --reload
+```
+
+4.Licencia
+Este proyecto está bajo la Licencia MIT.
+
+## Autor
+
+[Gino Loja](https://github.com/Gino-Loja)
